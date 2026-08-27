@@ -4,7 +4,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Position, TradeMode } from '../types/trading.js';
+import type { Position, TradeMode, PositionStatus } from '../types/trading.js';
 import { getMarketData } from './market.js';
 
 const positions = new Map<string, Position>();
@@ -97,7 +97,7 @@ export function closePosition(
   pos.unrealizedPnl = pnl;
   pos.unrealizedPnlPct = pnlPct;
   positions.set(id, pos);
-  untrackPosition(id);
+  trackPosition(pos);
   return pos;
 }
 
@@ -121,4 +121,8 @@ export async function refreshPositions(userId: number): Promise<Position[]> {
 
 export function countOpen(userId: number, mode?: TradeMode): number {
   return getOpenPositions(userId, mode).length;
+}
+
+export function getAllOpenPositions(): Position[] {
+  return Array.from(positions.values()).filter((pos) => pos.status === 'OPEN');
 }
