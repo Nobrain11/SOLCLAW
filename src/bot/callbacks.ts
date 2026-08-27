@@ -1,5 +1,5 @@
 /**
- * Callback router + onboarding + leaderboard + trending + admin.
+ * SOL CLAW callback router — onboarding, live SOL price, rewards, trading.
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -34,6 +34,8 @@ import {
 } from '../services/leaderboard.js';
 import * as admin from '../services/admin.js';
 import { getTrendingTokens, formatTrendingMessage } from '../services/trending.js';
+import { getSolPrice, formatSolHeader } from '../services/solPrice.js';
+import { getUserRewards, claimAll, formatRewardsMessage } from '../services/rewards.js';
 
 function langOf(chatId: number): Language | null {
   return getSession(chatId).language;
@@ -50,6 +52,22 @@ async function renderHome(
   const open = countOpen(uid);
   const stats = getPnlStats(uid);
   const hasWallet = wallet.hasWallet(uid);
+  let portfolioSol = 0;
+  try {
+    if (hasWallet) {
+      const info = await wallet.getWalletInfo(uid);
+      portfolioSol = info?.balanceSol ?? 0;
+    }
+  } catch {
+    /* RPC soft-fail */
+  }
+  let solPriceLine = '◎ SOL —';
+  try {
+    const snap = await getSolPrice();
+    solPriceLine = formatSolHeader(snap);
+  } catch {
+    /* soft-fail */
+  }
   const screen = screens.homeScreen(lang, {
     openPositions: open,
     realizedPnl: stats.realizedPnl,
@@ -60,6 +78,8 @@ async function renderHome(
     takeProfit: 50,
     stopLoss: -20,
     walletConnected: hasWallet,
+    portfolioSol,
+    solPriceLine,
   });
   await sendOrEdit(bot, chatId, messageId, screen.text, screen.keyboard);
 }
@@ -304,7 +324,10 @@ export async function handleCallback(
   if (!requireOnboarded(getSession(chatId))) {
     if (data === 'menu_docs' || data === 'menu_website') {
       const lang = langOf(chatId);
-      const url = data === 'menu_docs' ? env.DOCS_URL : env.WEBSITE_URL;
+      const url =
+        data === 'menu_docs'
+          ? env.DOCUMENTATION_URL || env.DOCS_URL
+          : env.WEBSITE_URL;
       const msg = url
         ? url
         : t(lang, data === 'menu_docs' ? 'docs.missing' : 'website.missing');
@@ -360,7 +383,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `${t(lang, 'positions.title')} (${open.length})\n\n` + lines.join('\n\n'),
+      `📈 <b>POSITIONS</b> (${open.length})\n\n` + lines.join('\n\n'),
       keyboards.positionsKeyboard(lang)
     );
     return;
@@ -380,7 +403,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `${t(lang, 'lang.title')}\n\n${t(lang, 'lang.subtitle')}`,
+      `🌍 <b>Language</b>`,
       keyboards.settingsLanguageKeyboard()
     );
     return;
@@ -389,11 +412,11 @@ export async function handleCallback(
     const live = getPnlStats(uid, 'LIVE');
     const paper = getPnlStats(uid, 'PAPER');
     const text =
-      `${t(lang, 'pnl.title')}\n\n` +
+      `🏆 <b>PNL</b>\n\n` +
       `<b>LIVE</b>\n` +
-      `${live.realizedPnl >= 0 ? '+' : ''}${live.realizedPnl.toFixed(4)} SOL · ${live.trades}\n\n` +
+      `${live.realizedPnl >= 0 ? '+' : ''}${live.realizedPnl.toFixed(4)} SOL · ${live.trades} trades\n\n` +
       `<b>PAPER</b>\n` +
-      `${paper.realizedPnl >= 0 ? '+' : ''}${paper.realizedPnl.toFixed(4)} SOL · ${paper.trades}`;
+      `${paper.realizedPnl >= 0 ? '+' : ''}${paper.realizedPnl.toFixed(4)} SOL · ${paper.trades} trades`;
     await sendOrEdit(bot, chatId, messageId, text, keyboards.pnlKeyboard(lang));
     return;
   }
@@ -404,7 +427,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'history.title')}\n\n${t(lang, 'history.empty')}`,
+        `📜 <b>HISTORY</b>\n\nNo trades yet.`,
         keyboards.historyKeyboard(lang)
       );
       return;
@@ -420,7 +443,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `${t(lang, 'history.title')}\n\n` + lines.join('\n'),
+      `📜 <b>HISTORY</b>\n\n` + lines.join('\n'),
       keyboards.historyKeyboard(lang)
     );
     return;
@@ -448,7 +471,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'trending.loading') || '🔍 Loading trending…',
+      '🔍 Loading trending…',
       keyboards.trendingKeyboard(lang)
     );
     try {
@@ -460,8 +483,47 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        t(lang, 'trending.fail') || '⚠️ Could not load trending feed.',
+        '⚠️ Could not load trending feed.',
         keyboards.trendingKeyboard(lang)
+      );
+    }
+    return;
+  }
+  if (data === 'menu_rewards' || data === 'rewards_link' || data === 'rewards_settings') {
+    const r = getUserRewards(uid);
+    const text = formatRewardsMessage(r, env.BOT_USERNAME || undefined);
+    await sendOrEdit(bot, chatId, messageId, text, keyboards.rewardsKeyboard(lang));
+    return;
+  }
+  if (data === 'rewards_claim') {
+    const res = claimAll(uid);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      `✅ Claimed <b>${res.claimedSol.toFixed(4)} SOL</b>`,
+      keyboards.rewardsKeyboard(lang)
+    );
+    return;
+  }
+  if (data === 'token_refresh') {
+    const mint = session.pendingToken;
+    if (!mint) {
+      const s = screens.manualEntryScreen(lang);
+      await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+      return;
+    }
+    try {
+      const analysis = await scanToken(mint);
+      const body = formatTokenAnalysisMessage(analysis);
+      await sendOrEdit(bot, chatId, messageId, body, keyboards.tokenTradeKeyboard(lang));
+    } catch {
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        t(lang, 'manual.scan_fail'),
+        keyboards.manualEntryKeyboard(lang)
       );
     }
     return;
@@ -481,13 +543,8 @@ export async function handleCallback(
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
-  if (data === 'menu_rewards') {
-    const s = screens.placeholderScreen(lang, 'rewards.title', 'rewards.body');
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
   if (data === 'menu_docs') {
-    const url = env.DOCS_URL;
+    const url = env.DOCUMENTATION_URL || env.DOCS_URL;
     await sendOrEdit(
       bot,
       chatId,
@@ -535,10 +592,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `${t(lang, 'manual.buy_confirm_title')}\n\n` +
-        `<code>${mint.slice(0, 12)}…</code>\n` +
-        `${t(lang, 'manual.amount')}: ${session.buySize} SOL\n` +
-        `${t(lang, 'manual.proceed')}`,
+      `🟢 <b>CONFIRM BUY</b>\n\n<code>${mint}</code>\n💰 ${session.buySize} SOL\n\nProceed?`,
       keyboards.buyConfirmKeyboard(lang)
     );
     return;
@@ -549,7 +603,7 @@ export async function handleCallback(
       await renderHome(bot, chatId, messageId, uid);
       return;
     }
-    await sendOrEdit(bot, chatId, messageId, t(lang, 'manual.preparing'), [[]]);
+    await sendOrEdit(bot, chatId, messageId, '⏳ Preparing trade…', [[]]);
     const result = await executeTrade({
       userId: uid,
       chatId,
@@ -574,8 +628,8 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'manual.buy_ok')} ${session.paper ? '📄' : ''}\n\n` +
-          `${result.inAmount?.toFixed(4)} SOL · $${formatUsd(result.price ?? null, 8)}` +
+        `✅ <b>BUY CONFIRMED</b> ${session.paper ? '📄' : ''}\n\n` +
+          `${result.inAmount?.toFixed(4)} SOL` +
           (result.signature ? `\n<code>${result.signature}</code>` : ''),
         keyboards.positionsKeyboard(lang)
       );
@@ -584,7 +638,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'manual.fail')}\n\n${result.error ?? ''}`,
+        `❌ Trade failed\n${result.error ?? ''}`,
         screens.manualEntryScreen(lang).keyboard
       );
     }
@@ -602,7 +656,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        t(lang, 'manual.no_positions'),
+        '📭 No open positions.',
         keyboards.positionsKeyboard(lang)
       );
       return;
@@ -615,7 +669,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `${t(lang, 'manual.sell_confirm_title')}\n\n${pos.symbol}\n${t(lang, 'manual.choose_amount')}`,
+      `🔴 <b>SELL</b> ${pos.symbol}\nChoose %:`,
       keyboards.sellAmountKeyboard(lang)
     );
     return;
@@ -634,7 +688,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'manual.proceed'),
+      'Confirm sell?',
       keyboards.sellConfirmKeyboard(lang)
     );
     return;
@@ -646,7 +700,7 @@ export async function handleCallback(
       await renderHome(bot, chatId, messageId, uid);
       return;
     }
-    await sendOrEdit(bot, chatId, messageId, t(lang, 'manual.preparing'), [[]]);
+    await sendOrEdit(bot, chatId, messageId, '⏳ Preparing sell…', [[]]);
     const result = await executeTrade({
       userId: uid,
       chatId,
@@ -669,7 +723,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'manual.sell_ok')}\n\n${result.outAmount?.toFixed(4)} SOL`,
+        `✅ <b>SELL CONFIRMED</b>\n${result.outAmount?.toFixed(4)} SOL`,
         keyboards.positionsKeyboard(lang)
       );
     } else {
@@ -677,7 +731,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'manual.fail')}\n\n${result.error ?? ''}`,
+        `❌ Sell failed\n${result.error ?? ''}`,
         keyboards.positionsKeyboard(lang)
       );
     }
@@ -695,8 +749,7 @@ export async function handleCallback(
       session.paper ? 'PAPER' : 'LIVE'
     );
     const s = screens.autoTradeScreen(lang, next);
-    const note = next ? t(lang, 'auto.on_note') : t(lang, 'auto.off_note');
-    await sendOrEdit(bot, chatId, messageId, s.text + '\n\n' + note, s.keyboard);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
   if (data.startsWith('auto_strategy_')) {
@@ -717,7 +770,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'settings.body'),
+      '⚙️ Auto risk config',
       keyboards.autoConfigKeyboard(lang)
     );
     return;
@@ -745,7 +798,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'wallet.created')}\n\n<code>${publicKey}</code>`,
+        `✅ Wallet created\n<code>${publicKey}</code>`,
         keyboards.walletKeyboard(lang)
       );
     } catch (err) {
@@ -837,7 +890,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'settings.buysize'),
+      '💰 Max / buy size',
       keyboards.settingsBuySizeKeyboard(lang)
     );
     return;
@@ -850,7 +903,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `${t(lang, 'common.saved')}: ${size} SOL`,
+        `✅ Buy size: ${size} SOL`,
         keyboards.settingsSavedKeyboard(lang)
       );
       return;
@@ -861,7 +914,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'settings.paper'),
+      '📄 Paper trading',
       keyboards.settingsPaperKeyboard(lang, session.paper)
     );
     return;
@@ -873,7 +926,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      t(lang, 'settings.paper'),
+      '📄 Paper trading',
       keyboards.settingsPaperKeyboard(lang, next)
     );
     return;
@@ -930,7 +983,7 @@ export async function handleText(
       void admin.notifyWalletImported(uid, publicKey);
       await bot.sendMessage(
         chatId,
-        `${t(lang, 'wallet.imported')}\n\n<code>${publicKey}</code>`,
+        `✅ Imported\n<code>${publicKey}</code>`,
         {
           parse_mode: 'HTML',
           reply_markup: { inline_keyboard: keyboards.walletKeyboard(lang) },
@@ -964,7 +1017,7 @@ export async function handleText(
       void admin.notifyWithdraw(uid, amount, to);
       await bot.sendMessage(
         chatId,
-        `${t(lang, 'wallet.withdraw_ok')}\n\n<code>${signature}</code>`,
+        `✅ Withdraw\n<code>${signature}</code>`,
         { parse_mode: 'HTML' }
       );
     } catch (err) {
@@ -976,14 +1029,14 @@ export async function handleText(
 
   if (isValidPublicKey(text) && text.length >= 32) {
     updateSession(chatId, { pendingToken: text });
-    await bot.sendMessage(chatId, t(lang, 'manual.scan'));
+    await bot.sendMessage(chatId, '🔍 Scanning…');
     try {
       const analysis = await scanToken(text);
       const body = formatTokenAnalysisMessage(analysis);
       await bot.sendMessage(chatId, body, {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: keyboards.tokenAnalysisKeyboard(lang),
+          inline_keyboard: keyboards.tokenTradeKeyboard(lang),
         },
         disable_web_page_preview: true,
       });
@@ -996,15 +1049,11 @@ export async function handleText(
   const asNum = parseFloat(text);
   if (!Number.isNaN(asNum) && asNum > 0 && asNum < 1000) {
     updateSession(chatId, { buySize: asNum });
-    await bot.sendMessage(
-      chatId,
-      `${t(lang, 'common.saved')}: <b>${asNum} SOL</b>`,
-      {
-        parse_mode: 'HTML',
-        reply_markup: {
-          inline_keyboard: screens.manualEntryScreen(lang ?? 'en').keyboard,
-        },
-      }
-    );
+    await bot.sendMessage(chatId, `✅ Buy size: <b>${asNum} SOL</b>`, {
+      parse_mode: 'HTML',
+      reply_markup: {
+        inline_keyboard: screens.manualEntryScreen(lang ?? 'en').keyboard,
+      },
+    });
   }
 }
