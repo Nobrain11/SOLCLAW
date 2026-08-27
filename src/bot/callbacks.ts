@@ -1,5 +1,5 @@
 /**
- * Callback router + onboarding gate + leaderboard + admin alerts.
+ * Callback router + onboarding + leaderboard + trending + admin.
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -33,6 +33,7 @@ import {
   formatLeaderboardMessage,
 } from '../services/leaderboard.js';
 import * as admin from '../services/admin.js';
+import { getTrendingTokens, formatTrendingMessage } from '../services/trending.js';
 
 function langOf(chatId: number): Language | null {
   return getSession(chatId).language;
@@ -427,37 +428,42 @@ export async function handleCallback(
   if (data === 'menu_leaderboard' || data === 'lb_all') {
     const entries = buildLeaderboard('all', 10);
     const text = formatLeaderboardMessage('all', entries, uid);
-    await sendOrEdit(
-      bot,
-      chatId,
-      messageId,
-      text,
-      keyboards.leaderboardKeyboard(lang)
-    );
+    await sendOrEdit(bot, chatId, messageId, text, keyboards.leaderboardKeyboard(lang));
     return;
   }
   if (data === 'lb_daily') {
     const entries = buildLeaderboard('daily', 10);
     const text = formatLeaderboardMessage('daily', entries, uid);
-    await sendOrEdit(
-      bot,
-      chatId,
-      messageId,
-      text,
-      keyboards.leaderboardKeyboard(lang)
-    );
+    await sendOrEdit(bot, chatId, messageId, text, keyboards.leaderboardKeyboard(lang));
     return;
   }
   if (data === 'lb_weekly') {
     const entries = buildLeaderboard('weekly', 10);
     const text = formatLeaderboardMessage('weekly', entries, uid);
+    await sendOrEdit(bot, chatId, messageId, text, keyboards.leaderboardKeyboard(lang));
+    return;
+  }
+  if (data === 'menu_trending' || data === 'trending_refresh') {
     await sendOrEdit(
       bot,
       chatId,
       messageId,
-      text,
-      keyboards.leaderboardKeyboard(lang)
+      t(lang, 'trending.loading') || '🔍 Loading trending…',
+      keyboards.trendingKeyboard(lang)
     );
+    try {
+      const items = await getTrendingTokens(10, data === 'trending_refresh');
+      const text = formatTrendingMessage(items);
+      await sendOrEdit(bot, chatId, messageId, text, keyboards.trendingKeyboard(lang));
+    } catch {
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        t(lang, 'trending.fail') || '⚠️ Could not load trending feed.',
+        keyboards.trendingKeyboard(lang)
+      );
+    }
     return;
   }
   if (data === 'menu_security') {
@@ -467,11 +473,6 @@ export async function handleCallback(
   }
   if (data === 'menu_help') {
     const s = screens.helpScreen(lang);
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data === 'menu_trending') {
-    const s = screens.placeholderScreen(lang, 'trending.title', 'trending.body');
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
