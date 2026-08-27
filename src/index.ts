@@ -6,6 +6,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import { handleStart, handleCallback, handleText } from './bot/callbacks.js';
 import { validateEnvForTrading } from './config/env.js';
 import { startTpslMonitor } from './services/tpsl.js';
+import { setAdminBot } from './services/admin.js';
 
 const token = process.env.BOT_TOKEN;
 
@@ -17,6 +18,7 @@ if (!token) {
 validateEnvForTrading();
 
 const bot = new TelegramBot(token, { polling: true });
+setAdminBot(bot);
 
 bot.onText(/\/start/, (msg) => {
   handleStart(bot, msg).catch((e) => console.error('start', e));
@@ -32,7 +34,6 @@ bot.on('message', (msg) => {
   }
 });
 
-// TP/SL monitor — alerts via Telegram
 startTpslMonitor(async (chatId, text) => {
   try {
     await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
