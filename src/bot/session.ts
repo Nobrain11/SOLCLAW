@@ -1,32 +1,39 @@
 /**
- * Lightweight in-memory session store.
- * Replace with your real repository / Redis later.
+ * User session + onboarding state.
  * Never store private keys here.
  */
+
+import type { Language } from '../i18n/index.js';
+
+export type OnboardingStep =
+  | 'language'
+  | 'welcome'
+  | 'referral'
+  | 'activation'
+  | 'done';
 
 export type UserSession = {
   chatId: number;
   userId?: number;
-  /** Selected buy size for manual trade (SOL) */
+  language: Language | null;
+  onboardingStep: OnboardingStep;
+  activated: boolean;
+  referralCode?: string;
   buySize: number;
-  /** Pending token CA while in manual flow */
   pendingToken?: string;
-  /** Pending sell percentage 0–100 */
   pendingSellPct?: number;
-  /** Auto-trade enabled */
   autoEnabled: boolean;
-  /** Selected auto strategy */
   autoStrategy: 'careful' | 'balanced' | 'bold' | 'custom';
-  /** Paper trading flag (UI only until DB field exists) */
   paper: boolean;
-  /** Alerts flag (UI only until DB field exists) */
   alerts: boolean;
-  /** Last screen for optional back-stack */
   lastScreen?: string;
   updatedAt: number;
 };
 
 const DEFAULT_SESSION: Omit<UserSession, 'chatId' | 'updatedAt'> = {
+  language: null,
+  onboardingStep: 'language',
+  activated: false,
   buySize: 0.05,
   autoEnabled: false,
   autoStrategy: 'balanced',
@@ -66,4 +73,12 @@ export function updateSession(
 
 export function clearPendingToken(chatId: number): void {
   updateSession(chatId, { pendingToken: undefined, pendingSellPct: undefined });
+}
+
+export function isOnboarded(session: UserSession): boolean {
+  return (
+    session.activated === true &&
+    session.language != null &&
+    session.onboardingStep === 'done'
+  );
 }

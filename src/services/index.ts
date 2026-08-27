@@ -12,3 +12,4 @@ export * from './trading.js';
 export * from './tpsl.js';
 export * from './strategies.js';
 export * from './auto.js';
+export * from './referral.js';
