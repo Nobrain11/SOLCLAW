@@ -1,6 +1,5 @@
 /**
- * Callback router + onboarding gate.
- * Flow: language → welcome → referral → activation → home
+ * Callback router + onboarding gate + leaderboard + admin alerts.
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -29,6 +28,11 @@ import {
   hasReferral,
 } from '../services/referral.js';
 import { env } from '../config/env.js';
+import {
+  buildLeaderboard,
+  formatLeaderboardMessage,
+} from '../services/leaderboard.js';
+import * as admin from '../services/admin.js';
 
 function langOf(chatId: number): Language | null {
   return getSession(chatId).language;
@@ -94,9 +98,7 @@ async function renderWallet(
   }
 }
 
-function requireOnboarded(
-  session: ReturnType<typeof getSession>
-): boolean {
+function requireOnboarded(session: ReturnType<typeof getSession>): boolean {
   return isOnboarded(session);
 }
 
@@ -108,7 +110,6 @@ async function gateOrHome(
 ): Promise<boolean> {
   const session = getSession(chatId);
   if (requireOnboarded(session)) return true;
-
   if (!session.language) {
     const s = screens.languageScreen();
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
@@ -149,7 +150,6 @@ export async function handleStart(
   const parts = (msg.text ?? '').trim().split(/\s+/);
   const payload = parts.length > 1 ? parts.slice(1).join(' ') : undefined;
   const refCode = parseStartPayload(payload);
-
   const session = getSession(chatId);
 
   if (isOnboarded(session)) {
@@ -165,6 +165,7 @@ export async function handleStart(
 
   if (!session.language) {
     updateSession(chatId, { onboardingStep: 'language' });
+    void admin.notifyNewUser(uid, msg.from?.username);
     const s = screens.languageScreen();
     await bot.sendMessage(chatId, s.text, {
       parse_mode: 'HTML',
@@ -290,6 +291,11 @@ export async function handleCallback(
       paper: false,
       buySize: 0.05,
     });
+    void admin.notifyActivation(
+      uid,
+      session.language ?? 'en',
+      session.referralCode
+    );
     await renderHome(bot, chatId, messageId, uid);
     return;
   }
@@ -418,6 +424,42 @@ export async function handleCallback(
     );
     return;
   }
+  if (data === 'menu_leaderboard' || data === 'lb_all') {
+    const entries = buildLeaderboard('all', 10);
+    const text = formatLeaderboardMessage('all', entries, uid);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      text,
+      keyboards.leaderboardKeyboard(lang)
+    );
+    return;
+  }
+  if (data === 'lb_daily') {
+    const entries = buildLeaderboard('daily', 10);
+    const text = formatLeaderboardMessage('daily', entries, uid);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      text,
+      keyboards.leaderboardKeyboard(lang)
+    );
+    return;
+  }
+  if (data === 'lb_weekly') {
+    const entries = buildLeaderboard('weekly', 10);
+    const text = formatLeaderboardMessage('weekly', entries, uid);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      text,
+      keyboards.leaderboardKeyboard(lang)
+    );
+    return;
+  }
   if (data === 'menu_security') {
     const s = screens.securityScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
@@ -519,6 +561,14 @@ export async function handleCallback(
       mode: session.paper ? 'PAPER' : 'LIVE',
     });
     if (result.state === 'CONFIRMED') {
+      void admin.notifyTrade({
+        userId: uid,
+        side: 'BUY',
+        symbol: mint.slice(0, 6),
+        valueSol: result.inAmount ?? session.buySize,
+        mode: session.paper ? 'PAPER' : 'LIVE',
+        signature: result.signature,
+      });
       await sendOrEdit(
         bot,
         chatId,
@@ -606,6 +656,14 @@ export async function handleCallback(
       mode: session.paper ? 'PAPER' : 'LIVE',
     });
     if (result.state === 'CONFIRMED') {
+      void admin.notifyTrade({
+        userId: uid,
+        side: 'SELL',
+        symbol: mint.slice(0, 6),
+        valueSol: result.outAmount ?? 0,
+        mode: session.paper ? 'PAPER' : 'LIVE',
+        signature: result.signature,
+      });
       await sendOrEdit(
         bot,
         chatId,
@@ -681,6 +739,7 @@ export async function handleCallback(
         return;
       }
       const { publicKey } = await wallet.createWallet(uid);
+      void admin.notifyWalletCreated(uid, publicKey);
       await sendOrEdit(
         bot,
         chatId,
@@ -867,6 +926,7 @@ export async function handleText(
         /* */
       }
       const { publicKey } = await wallet.importWallet(uid, text);
+      void admin.notifyWalletImported(uid, publicKey);
       await bot.sendMessage(
         chatId,
         `${t(lang, 'wallet.imported')}\n\n<code>${publicKey}</code>`,
@@ -900,6 +960,7 @@ export async function handleText(
     }
     try {
       const { signature } = await wallet.withdrawSol(uid, to, amount);
+      void admin.notifyWithdraw(uid, amount, to);
       await bot.sendMessage(
         chatId,
         `${t(lang, 'wallet.withdraw_ok')}\n\n<code>${signature}</code>`,
