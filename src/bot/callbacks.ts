@@ -1,12 +1,15 @@
 /**
- * Callback router — wires UI to wallet, scanner, paper/live trading.
- * pump.fun focused.
+ * Callback router + onboarding gate.
+ * Flow: language → welcome → referral → activation → home
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
 import { answerCallback, sendOrEdit } from './ui.js';
 import * as screens from './screens.js';
-import { getSession, updateSession } from './session.js';
+import { getSession, updateSession, isOnboarded } from './session.js';
+import type { Language } from '../i18n/index.js';
+import { t, isLanguage } from '../i18n/index.js';
+import * as keyboards from './keyboards.js';
 import * as wallet from '../services/wallet.js';
 import { scanToken, formatTokenAnalysisMessage } from '../services/scanner.js';
 import { formatUsd } from '../services/market.js';
@@ -18,9 +21,18 @@ import {
 } from '../services/positions.js';
 import { getPnlStats, getHistory } from '../services/history.js';
 import { isValidPublicKey } from '../services/rpc.js';
-import * as keyboards from './keyboards.js';
 import { formatStrategyMessage } from '../services/strategies.js';
 import { setAutoEnabled, setAutoStrategy } from '../services/auto.js';
+import {
+  applyReferral,
+  parseStartPayload,
+  hasReferral,
+} from '../services/referral.js';
+import { env } from '../config/env.js';
+
+function langOf(chatId: number): Language | null {
+  return getSession(chatId).language;
+}
 
 async function renderHome(
   bot: TelegramBot,
@@ -29,10 +41,11 @@ async function renderHome(
   uid: number
 ): Promise<void> {
   const session = getSession(chatId);
+  const lang = session.language ?? 'en';
   const open = countOpen(uid);
   const stats = getPnlStats(uid);
   const hasWallet = wallet.hasWallet(uid);
-  const screen = screens.homeScreen({
+  const screen = screens.homeScreen(lang, {
     openPositions: open,
     realizedPnl: stats.realizedPnl,
     autoTrade: session.autoEnabled,
@@ -52,10 +65,11 @@ async function renderWallet(
   messageId: number | undefined,
   uid: number
 ): Promise<void> {
+  const lang = langOf(chatId) ?? 'en';
   try {
     const info = await wallet.getWalletInfo(uid);
     if (!info) {
-      const screen = screens.walletScreen({
+      const screen = screens.walletScreen(lang, {
         address: '—',
         balance: 0,
         connected: false,
@@ -63,7 +77,7 @@ async function renderWallet(
       await sendOrEdit(bot, chatId, messageId, screen.text, screen.keyboard);
       return;
     }
-    const screen = screens.walletScreen({
+    const screen = screens.walletScreen(lang, {
       address: info.publicKey,
       balance: info.balanceSol,
       connected: true,
@@ -74,10 +88,122 @@ async function renderWallet(
       bot,
       chatId,
       messageId,
-      '⚠️ <b>Wallet</b>\n\nSolana RPC temporarily unavailable.',
-      keyboards.walletKeyboard()
+      t(lang, 'wallet.rpc_error'),
+      keyboards.walletKeyboard(lang)
     );
   }
+}
+
+function requireOnboarded(
+  session: ReturnType<typeof getSession>
+): boolean {
+  return isOnboarded(session);
+}
+
+async function gateOrHome(
+  bot: TelegramBot,
+  chatId: number,
+  messageId: number | undefined,
+  uid: number
+): Promise<boolean> {
+  const session = getSession(chatId);
+  if (requireOnboarded(session)) return true;
+
+  if (!session.language) {
+    const s = screens.languageScreen();
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return false;
+  }
+  if (session.onboardingStep === 'welcome') {
+    const s = screens.welcomeScreen(session.language);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return false;
+  }
+  if (
+    session.onboardingStep === 'referral' ||
+    (!session.referralCode && !hasReferral(uid))
+  ) {
+    const s = screens.referralScreen(session.language);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return false;
+  }
+  if (session.onboardingStep === 'activation') {
+    const s = screens.activationScreen(session.language);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return false;
+  }
+  const s = screens.languageScreen();
+  await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+  return false;
+}
+
+export async function handleStart(
+  bot: TelegramBot,
+  msg: TelegramBot.Message
+): Promise<void> {
+  if (!msg.chat?.id) return;
+  const chatId = msg.chat.id;
+  const uid = msg.from?.id ?? 0;
+  if (uid) updateSession(chatId, { userId: uid });
+
+  const parts = (msg.text ?? '').trim().split(/\s+/);
+  const payload = parts.length > 1 ? parts.slice(1).join(' ') : undefined;
+  const refCode = parseStartPayload(payload);
+
+  const session = getSession(chatId);
+
+  if (isOnboarded(session)) {
+    if (refCode && uid) applyReferral(uid, refCode);
+    await renderHome(bot, chatId, undefined, uid);
+    return;
+  }
+
+  if (refCode && uid) {
+    const res = applyReferral(uid, refCode);
+    if (res.ok) updateSession(chatId, { referralCode: refCode });
+  }
+
+  if (!session.language) {
+    updateSession(chatId, { onboardingStep: 'language' });
+    const s = screens.languageScreen();
+    await bot.sendMessage(chatId, s.text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: s.keyboard },
+    });
+    return;
+  }
+
+  if (session.onboardingStep === 'welcome') {
+    const s = screens.welcomeScreen(session.language);
+    await bot.sendMessage(chatId, s.text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: s.keyboard },
+    });
+    return;
+  }
+
+  const hasRef = !!session.referralCode || (uid ? hasReferral(uid) : false);
+  if (!hasRef || session.onboardingStep === 'referral') {
+    updateSession(chatId, { onboardingStep: 'referral' });
+    const s = screens.referralScreen(session.language);
+    await bot.sendMessage(chatId, s.text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: s.keyboard },
+    });
+    return;
+  }
+
+  if (session.onboardingStep === 'activation' || !session.activated) {
+    updateSession(chatId, { onboardingStep: 'activation' });
+    const s = screens.activationScreen(session.language);
+    await bot.sendMessage(chatId, s.text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: s.keyboard },
+    });
+    return;
+  }
+
+  await renderHome(bot, chatId, undefined, uid);
 }
 
 export async function handleCallback(
@@ -92,21 +218,115 @@ export async function handleCallback(
   const chatId = query.message.chat.id;
   const messageId = query.message.message_id;
   const uid = query.from?.id ?? 0;
-  const session = getSession(chatId);
   if (uid) updateSession(chatId, { userId: uid });
   await answerCallback(bot, query);
+
+  let session = getSession(chatId);
+
+  if (data.startsWith('language_')) {
+    const code = data.replace('language_', '');
+    if (!isLanguage(code)) return;
+    updateSession(chatId, {
+      language: code,
+      onboardingStep: session.activated ? 'done' : 'welcome',
+    });
+    session = getSession(chatId);
+    if (session.activated) {
+      await renderHome(bot, chatId, messageId, uid);
+      return;
+    }
+    const s = screens.welcomeScreen(code);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+
+  if (data === 'onboard_continue') {
+    session = getSession(chatId);
+    const hasRef =
+      !!session.referralCode || (uid ? hasReferral(uid) : false);
+    if (hasRef) {
+      updateSession(chatId, { onboardingStep: 'activation' });
+      const s = screens.activationScreen(session.language ?? 'en');
+      await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+      return;
+    }
+    updateSession(chatId, { onboardingStep: 'referral' });
+    const s = screens.referralScreen(session.language);
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+
+  if (data === 'referral_enter') {
+    const lang = langOf(chatId);
+    updateSession(chatId, { lastScreen: 'await_referral' });
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'referral.prompt'),
+      keyboards.referralKeyboard(lang)
+    );
+    return;
+  }
+
+  if (data === 'referral_how') {
+    const lang = langOf(chatId);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'referral.body') + '\n\n' + t(lang, 'referral.prompt'),
+      keyboards.referralKeyboard(lang)
+    );
+    return;
+  }
+
+  if (data === 'onboard_enter_home') {
+    updateSession(chatId, {
+      activated: true,
+      onboardingStep: 'done',
+      autoEnabled: false,
+      alerts: false,
+      paper: false,
+      buySize: 0.05,
+    });
+    await renderHome(bot, chatId, messageId, uid);
+    return;
+  }
+
+  if (!requireOnboarded(getSession(chatId))) {
+    if (data === 'menu_docs' || data === 'menu_website') {
+      const lang = langOf(chatId);
+      const url = data === 'menu_docs' ? env.DOCS_URL : env.WEBSITE_URL;
+      const msg = url
+        ? url
+        : t(lang, data === 'menu_docs' ? 'docs.missing' : 'website.missing');
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        msg,
+        keyboards.welcomeKeyboard(lang)
+      );
+      return;
+    }
+    await gateOrHome(bot, chatId, messageId, uid);
+    return;
+  }
+
+  const lang = langOf(chatId) ?? 'en';
 
   if (data === 'home') {
     await renderHome(bot, chatId, messageId, uid);
     return;
   }
   if (data === 'menu_manual') {
-    const s = screens.manualEntryScreen();
+    const s = screens.manualEntryScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
   if (data === 'menu_auto') {
-    const s = screens.autoTradeScreen(session.autoEnabled);
+    const s = screens.autoTradeScreen(lang, session.autoEnabled);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
@@ -117,7 +337,7 @@ export async function handleCallback(
   if (data === 'positions_open' || data === 'positions_refresh') {
     const open = await refreshPositions(uid);
     if (open.length === 0) {
-      const s = screens.positionsScreen(false);
+      const s = screens.positionsEmptyScreen(lang);
       await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
       return;
     }
@@ -125,7 +345,7 @@ export async function handleCallback(
       const sign = p.unrealizedPnl >= 0 ? '+' : '';
       return (
         `• <b>${p.symbol}</b> [${p.mode}]\n` +
-        `  Entry $${formatUsd(p.entryPrice, 8)} → $${formatUsd(p.currentPrice, 8)}\n` +
+        `  $${formatUsd(p.entryPrice, 8)} → $${formatUsd(p.currentPrice, 8)}\n` +
         `  PnL: ${sign}${p.unrealizedPnl.toFixed(4)} SOL`
       );
     });
@@ -133,66 +353,116 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `📈 <b>OPEN POSITIONS</b> (${open.length})\n\n` + lines.join('\n\n'),
-      keyboards.positionsKeyboard()
+      `${t(lang, 'positions.title')} (${open.length})\n\n` + lines.join('\n\n'),
+      keyboards.positionsKeyboard(lang)
     );
     return;
   }
   if (data === 'menu_alerts') {
-    const s = screens.alertsScreen();
+    const s = screens.alertsScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
   if (data === 'menu_settings') {
-    const s = screens.settingsScreen();
+    const s = screens.settingsScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+  if (data === 'settings_language') {
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      `${t(lang, 'lang.title')}\n\n${t(lang, 'lang.subtitle')}`,
+      keyboards.settingsLanguageKeyboard()
+    );
     return;
   }
   if (data === 'menu_pnl' || data === 'pnl_refresh') {
     const live = getPnlStats(uid, 'LIVE');
     const paper = getPnlStats(uid, 'PAPER');
     const text =
-      `🏆 <b>PnL</b>\n\n` +
+      `${t(lang, 'pnl.title')}\n\n` +
       `<b>LIVE</b>\n` +
-      `Realized: ${live.realizedPnl >= 0 ? '+' : ''}${live.realizedPnl.toFixed(4)} SOL\n` +
-      `Trades: ${live.trades}\n\n` +
-      `<b>📄 PAPER</b>\n` +
-      `Realized: ${paper.realizedPnl >= 0 ? '+' : ''}${paper.realizedPnl.toFixed(4)} SOL\n` +
-      `Trades: ${paper.trades}`;
-    await sendOrEdit(bot, chatId, messageId, text, keyboards.pnlKeyboard());
+      `${live.realizedPnl >= 0 ? '+' : ''}${live.realizedPnl.toFixed(4)} SOL · ${live.trades}\n\n` +
+      `<b>PAPER</b>\n` +
+      `${paper.realizedPnl >= 0 ? '+' : ''}${paper.realizedPnl.toFixed(4)} SOL · ${paper.trades}`;
+    await sendOrEdit(bot, chatId, messageId, text, keyboards.pnlKeyboard(lang));
     return;
   }
   if (data === 'menu_history' || data === 'history_refresh') {
     const hist = getHistory(uid, undefined, 10);
     if (hist.length === 0) {
-      const s = screens.historyScreen(false);
-      await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        `${t(lang, 'history.title')}\n\n${t(lang, 'history.empty')}`,
+        keyboards.historyKeyboard(lang)
+      );
       return;
     }
-    const lines = hist.map((t) => {
+    const lines = hist.map((h) => {
       const pnl =
-        t.pnlSol != null
-          ? ` · PnL ${t.pnlSol >= 0 ? '+' : ''}${t.pnlSol.toFixed(4)}`
+        h.pnlSol != null
+          ? ` · ${h.pnlSol >= 0 ? '+' : ''}${h.pnlSol.toFixed(4)}`
           : '';
-      return `• ${t.side} <b>${t.symbol}</b> [${t.mode}] ${t.valueSol.toFixed(4)} SOL${pnl}`;
+      return `• ${h.side} <b>${h.symbol}</b> [${h.mode}] ${h.valueSol.toFixed(4)}${pnl}`;
     });
     await sendOrEdit(
       bot,
       chatId,
       messageId,
-      `📜 <b>TRADE HISTORY</b>\n\n` + lines.join('\n'),
-      keyboards.historyKeyboard()
+      `${t(lang, 'history.title')}\n\n` + lines.join('\n'),
+      keyboards.historyKeyboard(lang)
     );
     return;
   }
   if (data === 'menu_security') {
-    const s = screens.securityScreen();
+    const s = screens.securityScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
   if (data === 'menu_help') {
-    const s = screens.helpScreen();
+    const s = screens.helpScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+  if (data === 'menu_trending') {
+    const s = screens.placeholderScreen(lang, 'trending.title', 'trending.body');
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+  if (data === 'menu_tracker') {
+    const s = screens.placeholderScreen(lang, 'tracker.title', 'tracker.body');
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+  if (data === 'menu_rewards') {
+    const s = screens.placeholderScreen(lang, 'rewards.title', 'rewards.body');
+    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    return;
+  }
+  if (data === 'menu_docs') {
+    const url = env.DOCS_URL;
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      url || t(lang, 'docs.missing'),
+      keyboards.simpleNav(lang)
+    );
+    return;
+  }
+  if (data === 'menu_website') {
+    const url = env.WEBSITE_URL;
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      url || t(lang, 'website.missing'),
+      keyboards.simpleNav(lang)
+    );
     return;
   }
 
@@ -200,16 +470,9 @@ export async function handleCallback(
     const raw = data.replace('manual_size_', '');
     if (raw !== 'custom') {
       const size = parseFloat(raw);
-      if (!Number.isNaN(size) && size > 0) {
-        updateSession(chatId, { buySize: size });
-      }
+      if (!Number.isNaN(size) && size > 0) updateSession(chatId, { buySize: size });
     }
-    const s = screens.manualEntryScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data === 'manual_change_size') {
-    const s = screens.manualEntryScreen();
+    const s = screens.manualEntryScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
@@ -220,19 +483,21 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        '⚡ Paste a token address first.',
-        screens.manualEntryScreen().keyboard
+        t(lang, 'manual.paste_first'),
+        screens.manualEntryScreen(lang).keyboard
       );
       return;
     }
-    const s = screens.buyConfirmScreen({
-      token: mint.slice(0, 8) + '…',
-      amount: session.buySize,
-      slippage: 0.5,
-      takeProfit: 50,
-      stopLoss: -20,
-    });
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      `${t(lang, 'manual.buy_confirm_title')}\n\n` +
+        `<code>${mint.slice(0, 12)}…</code>\n` +
+        `${t(lang, 'manual.amount')}: ${session.buySize} SOL\n` +
+        `${t(lang, 'manual.proceed')}`,
+      keyboards.buyConfirmKeyboard(lang)
+    );
     return;
   }
   if (data === 'manual_buy_confirm') {
@@ -241,13 +506,7 @@ export async function handleCallback(
       await renderHome(bot, chatId, messageId, uid);
       return;
     }
-    await sendOrEdit(
-      bot,
-      chatId,
-      messageId,
-      `⏳ Preparing trade...\n📄 Mode: ${session.paper ? 'PAPER' : 'LIVE'}`,
-      [[]]
-    );
+    await sendOrEdit(bot, chatId, messageId, t(lang, 'manual.preparing'), [[]]);
     const result = await executeTrade({
       userId: uid,
       chatId,
@@ -260,25 +519,28 @@ export async function handleCallback(
       mode: session.paper ? 'PAPER' : 'LIVE',
     });
     if (result.state === 'CONFIRMED') {
-      const text =
-        `✅ <b>BUY CONFIRMED</b> ${session.paper ? '📄 PAPER' : ''}\n\n` +
-        `Amount: ${result.inAmount?.toFixed(4)} SOL\n` +
-        `Price: $${formatUsd(result.price ?? null, 8)}` +
-        (result.signature ? `\n\nSig: <code>${result.signature}</code>` : '');
-      await sendOrEdit(bot, chatId, messageId, text, keyboards.positionsKeyboard());
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        `${t(lang, 'manual.buy_ok')} ${session.paper ? '📄' : ''}\n\n` +
+          `${result.inAmount?.toFixed(4)} SOL · $${formatUsd(result.price ?? null, 8)}` +
+          (result.signature ? `\n<code>${result.signature}</code>` : ''),
+        keyboards.positionsKeyboard(lang)
+      );
     } else {
       await sendOrEdit(
         bot,
         chatId,
         messageId,
-        `❌ <b>Trade failed</b>\n\n${result.error ?? 'Unknown'}`,
-        screens.manualEntryScreen().keyboard
+        `${t(lang, 'manual.fail')}\n\n${result.error ?? ''}`,
+        screens.manualEntryScreen(lang).keyboard
       );
     }
     return;
   }
   if (data === 'manual_buy_cancel' || data === 'manual_sell_cancel') {
-    const s = screens.manualEntryScreen();
+    const s = screens.manualEntryScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
@@ -289,8 +551,8 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        '📭 No open positions.',
-        keyboards.positionsKeyboard()
+        t(lang, 'manual.no_positions'),
+        keyboards.positionsKeyboard(lang)
       );
       return;
     }
@@ -298,11 +560,13 @@ export async function handleCallback(
       ? open.find((p) => p.mint === session.pendingToken) ?? open[0]
       : open[0];
     updateSession(chatId, { pendingToken: pos.mint });
-    const s = screens.sellAmountScreen({
-      token: pos.symbol,
-      positionSol: pos.entrySol,
-    });
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      `${t(lang, 'manual.sell_confirm_title')}\n\n${pos.symbol}\n${t(lang, 'manual.choose_amount')}`,
+      keyboards.sellAmountKeyboard(lang)
+    );
     return;
   }
   if (
@@ -315,11 +579,13 @@ export async function handleCallback(
       const pct = parseInt(pctRaw, 10);
       if (!Number.isNaN(pct)) updateSession(chatId, { pendingSellPct: pct });
     }
-    const s = screens.sellConfirmScreen({
-      token: (session.pendingToken ?? 'TOKEN').slice(0, 8) + '…',
-      positionSol: 0,
-    });
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'manual.proceed'),
+      keyboards.sellConfirmKeyboard(lang)
+    );
     return;
   }
   if (data === 'manual_sell_confirm') {
@@ -329,7 +595,7 @@ export async function handleCallback(
       await renderHome(bot, chatId, messageId, uid);
       return;
     }
-    await sendOrEdit(bot, chatId, messageId, '⏳ Preparing sell...', [[]]);
+    await sendOrEdit(bot, chatId, messageId, t(lang, 'manual.preparing'), [[]]);
     const result = await executeTrade({
       userId: uid,
       chatId,
@@ -344,17 +610,16 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `✅ <b>SELL CONFIRMED</b> ${session.paper ? '📄 PAPER' : ''}\n\n` +
-          `Value: ${result.outAmount?.toFixed(4)} SOL`,
-        keyboards.positionsKeyboard()
+        `${t(lang, 'manual.sell_ok')}\n\n${result.outAmount?.toFixed(4)} SOL`,
+        keyboards.positionsKeyboard(lang)
       );
     } else {
       await sendOrEdit(
         bot,
         chatId,
         messageId,
-        `❌ <b>Sell failed</b>\n\n${result.error ?? 'Unknown'}`,
-        keyboards.positionsKeyboard()
+        `${t(lang, 'manual.fail')}\n\n${result.error ?? ''}`,
+        keyboards.positionsKeyboard(lang)
       );
     }
     return;
@@ -370,11 +635,9 @@ export async function handleCallback(
       session.autoStrategy,
       session.paper ? 'PAPER' : 'LIVE'
     );
-    const s = screens.autoTradeScreen(next);
-    const note = next
-      ? '\n\n🟢 Engine ON — trades only when opportunities pass safety + risk.'
-      : '\n\n🔴 Engine OFF';
-    await sendOrEdit(bot, chatId, messageId, s.text + note, s.keyboard);
+    const s = screens.autoTradeScreen(lang, next);
+    const note = next ? t(lang, 'auto.on_note') : t(lang, 'auto.off_note');
+    await sendOrEdit(bot, chatId, messageId, s.text + '\n\n' + note, s.keyboard);
     return;
   }
   if (data.startsWith('auto_strategy_')) {
@@ -386,13 +649,18 @@ export async function handleCallback(
     updateSession(chatId, { autoStrategy: strategy });
     setAutoStrategy(uid, strategy);
     const detail = formatStrategyMessage(strategy, uid);
-    const s = screens.autoTradeScreen(session.autoEnabled);
+    const s = screens.autoTradeScreen(lang, session.autoEnabled);
     await sendOrEdit(bot, chatId, messageId, s.text + '\n\n' + detail, s.keyboard);
     return;
   }
   if (data === 'auto_customize' || data.startsWith('auto_cfg_')) {
-    const s = screens.autoConfigScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'settings.body'),
+      keyboards.autoConfigKeyboard(lang)
+    );
     return;
   }
 
@@ -407,8 +675,8 @@ export async function handleCallback(
           bot,
           chatId,
           messageId,
-          '⚠️ Wallet already exists.',
-          keyboards.walletKeyboard()
+          t(lang, 'wallet.exists'),
+          keyboards.walletKeyboard(lang)
         );
         return;
       }
@@ -417,12 +685,12 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        `✅ <b>Wallet created</b>\n\nAddress:\n<code>${publicKey}</code>`,
-        keyboards.walletKeyboard()
+        `${t(lang, 'wallet.created')}\n\n<code>${publicKey}</code>`,
+        keyboards.walletKeyboard(lang)
       );
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Create failed';
-      await sendOrEdit(bot, chatId, messageId, `❌ ${msg}`, keyboards.walletKeyboard());
+      const msg = err instanceof Error ? err.message : 'Error';
+      await sendOrEdit(bot, chatId, messageId, `❌ ${msg}`, keyboards.walletKeyboard(lang));
     }
     return;
   }
@@ -431,8 +699,8 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      '📥 <b>Import Wallet</b>\n\nSend your private key as a message (base58).\nDelete the message after sending.',
-      keyboards.walletKeyboard()
+      t(lang, 'wallet.import_prompt'),
+      keyboards.walletKeyboard(lang)
     );
     updateSession(chatId, { lastScreen: 'await_import_key' });
     return;
@@ -443,37 +711,38 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        '⚠️ No wallet to export.',
-        keyboards.walletKeyboard()
+        t(lang, 'wallet.none'),
+        keyboards.walletKeyboard(lang)
       );
       return;
     }
-    const s = screens.exportKeyWarningScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'wallet.export_warn'),
+      keyboards.exportKeyWarningKeyboard(lang)
+    );
     return;
   }
   if (data === 'wallet_export_confirm') {
     try {
       const key = wallet.exportPrivateKeySecure(uid);
-      await bot.sendMessage(
-        chatId,
-        `🔐 <b>Private key</b> (delete this message):\n\n<code>${key}</code>`,
-        { parse_mode: 'HTML' }
-      );
+      await bot.sendMessage(chatId, `🔐 <code>${key}</code>`, { parse_mode: 'HTML' });
       await sendOrEdit(
         bot,
         chatId,
         messageId,
-        '✅ Key sent. Delete it after saving offline.',
-        keyboards.walletKeyboard()
+        t(lang, 'wallet.export_ok'),
+        keyboards.walletKeyboard(lang)
       );
     } catch {
       await sendOrEdit(
         bot,
         chatId,
         messageId,
-        '❌ Export failed.',
-        keyboards.walletKeyboard()
+        t(lang, 'wallet.export_fail'),
+        keyboards.walletKeyboard(lang)
       );
     }
     return;
@@ -483,8 +752,8 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      '📤 <b>Withdraw</b>\n\nSend: <code>ADDRESS AMOUNT</code>',
-      keyboards.walletKeyboard()
+      t(lang, 'wallet.withdraw_prompt'),
+      keyboards.walletKeyboard(lang)
     );
     updateSession(chatId, { lastScreen: 'await_withdraw' });
     return;
@@ -492,74 +761,65 @@ export async function handleCallback(
 
   if (data === 'alerts_enable') {
     updateSession(chatId, { alerts: true });
-    const s = screens.alertsScreen();
+    const s = screens.alertsScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
   if (data === 'alerts_disable') {
     updateSession(chatId, { alerts: false });
-    const s = screens.alertsScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data.startsWith('alerts_')) {
-    const s = screens.alertsScreen();
+    const s = screens.alertsScreen(lang);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
 
   if (data === 'settings_buysize') {
-    const s = screens.settingsBuySizeScreen(session.buySize);
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'settings.buysize'),
+      keyboards.settingsBuySizeKeyboard(lang)
+    );
     return;
   }
   if (data.startsWith('set_buysize_')) {
-    const raw = data.replace('set_buysize_', '');
-    if (raw !== 'custom') {
-      const size = parseFloat(raw);
-      if (!Number.isNaN(size) && size > 0) {
-        updateSession(chatId, { buySize: size });
-        const s = screens.valueSavedScreen('Buy size', `${size} SOL`);
-        await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-        return;
-      }
+    const size = parseFloat(data.replace('set_buysize_', ''));
+    if (!Number.isNaN(size) && size > 0) {
+      updateSession(chatId, { buySize: size });
+      await sendOrEdit(
+        bot,
+        chatId,
+        messageId,
+        `${t(lang, 'common.saved')}: ${size} SOL`,
+        keyboards.settingsSavedKeyboard(lang)
+      );
+      return;
     }
   }
   if (data === 'settings_paper') {
-    const s = screens.settingsPaperScreen(session.paper);
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'settings.paper'),
+      keyboards.settingsPaperKeyboard(lang, session.paper)
+    );
     return;
   }
   if (data === 'set_paper_toggle') {
     const next = !session.paper;
     updateSession(chatId, { paper: next });
-    const s = screens.settingsPaperScreen(next);
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data.startsWith('settings_') || data.startsWith('set_')) {
-    const s = screens.settingsScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data === 'security_safety') {
-    const s = screens.securityScreen();
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
+    await sendOrEdit(
+      bot,
+      chatId,
+      messageId,
+      t(lang, 'settings.paper'),
+      keyboards.settingsPaperKeyboard(lang, next)
+    );
     return;
   }
 
   await renderHome(bot, chatId, messageId, uid);
-}
-
-export async function handleStart(
-  bot: TelegramBot,
-  msg: TelegramBot.Message
-): Promise<void> {
-  if (!msg.chat?.id) return;
-  const chatId = msg.chat.id;
-  const uid = msg.from?.id ?? 0;
-  if (uid) updateSession(chatId, { userId: uid });
-  await renderHome(bot, chatId, undefined, uid);
 }
 
 export async function handleText(
@@ -571,6 +831,32 @@ export async function handleText(
   const uid = msg.from?.id ?? 0;
   const text = msg.text.trim();
   const session = getSession(chatId);
+  const lang = session.language;
+
+  if (session.lastScreen === 'await_referral' || session.onboardingStep === 'referral') {
+    const res = applyReferral(uid, text);
+    if (!res.ok) {
+      await bot.sendMessage(chatId, t(lang, 'referral.invalid'));
+      return;
+    }
+    updateSession(chatId, {
+      referralCode: text,
+      lastScreen: undefined,
+      onboardingStep: 'activation',
+    });
+    await bot.sendMessage(chatId, t(lang, 'referral.ok'));
+    const s = screens.activationScreen(lang ?? 'en');
+    await bot.sendMessage(chatId, s.text, {
+      parse_mode: 'HTML',
+      reply_markup: { inline_keyboard: s.keyboard },
+    });
+    return;
+  }
+
+  if (!isOnboarded(session)) {
+    await bot.sendMessage(chatId, t(lang, 'gate.incomplete'));
+    return;
+  }
 
   if (session.lastScreen === 'await_import_key') {
     updateSession(chatId, { lastScreen: undefined });
@@ -578,20 +864,20 @@ export async function handleText(
       try {
         await bot.deleteMessage(chatId, msg.message_id);
       } catch {
-        /* ignore */
+        /* */
       }
       const { publicKey } = await wallet.importWallet(uid, text);
       await bot.sendMessage(
         chatId,
-        `✅ <b>Wallet imported</b>\n\nAddress:\n<code>${publicKey}</code>`,
+        `${t(lang, 'wallet.imported')}\n\n<code>${publicKey}</code>`,
         {
           parse_mode: 'HTML',
-          reply_markup: { inline_keyboard: keyboards.walletKeyboard() },
+          reply_markup: { inline_keyboard: keyboards.walletKeyboard(lang) },
         }
       );
     } catch {
-      await bot.sendMessage(chatId, '❌ Invalid private key.', {
-        reply_markup: { inline_keyboard: keyboards.walletKeyboard() },
+      await bot.sendMessage(chatId, t(lang, 'wallet.invalid_key'), {
+        reply_markup: { inline_keyboard: keyboards.walletKeyboard(lang) },
       });
     }
     return;
@@ -601,24 +887,26 @@ export async function handleText(
     updateSession(chatId, { lastScreen: undefined });
     const parts = text.split(/\s+/);
     if (parts.length < 2) {
-      await bot.sendMessage(chatId, '❌ Format: ADDRESS AMOUNT');
+      await bot.sendMessage(chatId, t(lang, 'wallet.withdraw_prompt'), {
+        parse_mode: 'HTML',
+      });
       return;
     }
     const [to, amtStr] = parts;
     const amount = parseFloat(amtStr);
     if (!isValidPublicKey(to) || Number.isNaN(amount) || amount <= 0) {
-      await bot.sendMessage(chatId, '❌ Invalid address or amount.');
+      await bot.sendMessage(chatId, t(lang, 'wallet.withdraw_fail'));
       return;
     }
     try {
       const { signature } = await wallet.withdrawSol(uid, to, amount);
       await bot.sendMessage(
         chatId,
-        `✅ <b>Withdraw submitted</b>\n\n<code>${signature}</code>`,
+        `${t(lang, 'wallet.withdraw_ok')}\n\n<code>${signature}</code>`,
         { parse_mode: 'HTML' }
       );
     } catch (err) {
-      const m = err instanceof Error ? err.message : 'Withdraw failed';
+      const m = err instanceof Error ? err.message : t(lang, 'wallet.withdraw_fail');
       await bot.sendMessage(chatId, `❌ ${m}`);
     }
     return;
@@ -626,17 +914,19 @@ export async function handleText(
 
   if (isValidPublicKey(text) && text.length >= 32) {
     updateSession(chatId, { pendingToken: text });
-    await bot.sendMessage(chatId, '🔍 Scanning token…');
+    await bot.sendMessage(chatId, t(lang, 'manual.scan'));
     try {
       const analysis = await scanToken(text);
       const body = formatTokenAnalysisMessage(analysis);
       await bot.sendMessage(chatId, body, {
         parse_mode: 'HTML',
-        reply_markup: { inline_keyboard: keyboards.tokenAnalysisKeyboard() },
+        reply_markup: {
+          inline_keyboard: keyboards.tokenAnalysisKeyboard(lang),
+        },
         disable_web_page_preview: true,
       });
     } catch {
-      await bot.sendMessage(chatId, '⚠️ Could not scan token.');
+      await bot.sendMessage(chatId, t(lang, 'manual.scan_fail'));
     }
     return;
   }
@@ -646,11 +936,11 @@ export async function handleText(
     updateSession(chatId, { buySize: asNum });
     await bot.sendMessage(
       chatId,
-      `✅ Buy size set to <b>${asNum} SOL</b>`,
+      `${t(lang, 'common.saved')}: <b>${asNum} SOL</b>`,
       {
         parse_mode: 'HTML',
         reply_markup: {
-          inline_keyboard: screens.manualEntryScreen().keyboard,
+          inline_keyboard: screens.manualEntryScreen(lang ?? 'en').keyboard,
         },
       }
     );
