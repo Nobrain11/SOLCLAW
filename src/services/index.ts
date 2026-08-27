@@ -10,3 +10,5 @@ export * from './paper.js';
 export * from './jupiter.js';
 export * from './trading.js';
 export * from './tpsl.js';
+export * from './strategies.js';
+export * from './auto.js';
