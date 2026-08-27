@@ -15,3 +15,4 @@ export * from './auto.js';
 export * from './referral.js';
 export * from './leaderboard.js';
 export * from './admin.js';
+export * from './trending.js';
