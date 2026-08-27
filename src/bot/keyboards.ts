@@ -68,7 +68,7 @@ export function homeKeyboard(lang: Language | null): InlineKeyboard {
       btn(t(lang, 'btn.history'), 'menu_history'),
     ],
     [
-      btn(t(lang, 'btn.rewards'), 'menu_rewards'),
+      btn(t(lang, 'btn.leaderboard'), 'menu_leaderboard'),
       btn(t(lang, 'btn.settings'), 'menu_settings'),
       btn(t(lang, 'btn.security'), 'menu_security'),
     ],
@@ -226,6 +226,17 @@ export function securityKeyboard(lang: Language | null): InlineKeyboard {
 export function helpKeyboard(lang: Language | null): InlineKeyboard {
   return [
     [btn(t(lang, 'btn.manual'), 'menu_manual'), btn(t(lang, 'btn.auto'), 'menu_auto')],
+    navRow(lang),
+  ];
+}
+
+export function leaderboardKeyboard(lang: Language | null): InlineKeyboard {
+  return [
+    [
+      btn(t(lang, 'leaderboard.daily'), 'lb_daily'),
+      btn(t(lang, 'leaderboard.weekly'), 'lb_weekly'),
+      btn(t(lang, 'leaderboard.all'), 'lb_all'),
+    ],
     navRow(lang),
   ];
 }
