@@ -1,233 +1,160 @@
 /**
- * Screen composition: text + keyboard.
+ * Screen composition using i18n.
  */
 
-import * as messages from './messages.js';
-import * as keyboards from './keyboards.js';
 import type TelegramBot from 'node-telegram-bot-api';
+import type { Language } from '../i18n/index.js';
+import { t } from '../i18n/index.js';
+import * as keyboards from './keyboards.js';
 
 export type Screen = {
   text: string;
   keyboard: TelegramBot.InlineKeyboardButton[][];
 };
 
-export const DEFAULT_HOME_STATE = {
-  openPositions: 0,
-  realizedPnl: 0,
-  autoTrade: false,
-  alerts: false,
-  paper: false,
-  buySize: 0.05,
-  takeProfit: 50,
-  stopLoss: -20,
-  walletConnected: false,
-};
-
-export function homeScreen(state = DEFAULT_HOME_STATE): Screen {
+export function languageScreen(): Screen {
   return {
-    text: messages.homeMessage(state),
-    keyboard: keyboards.homeKeyboard(),
+    text: `${t(null, 'lang.title')}\n\n${t(null, 'lang.subtitle')}`,
+    keyboard: keyboards.languageKeyboard(),
   };
 }
 
-export function manualEntryScreen(): Screen {
+export function welcomeScreen(lang: Language): Screen {
   return {
-    text: messages.MANUAL_ENTRY,
-    keyboard: keyboards.manualEntryKeyboard(),
+    text: `${t(lang, 'welcome.title')}\n\n${t(lang, 'welcome.body')}`,
+    keyboard: keyboards.welcomeKeyboard(lang),
   };
 }
 
-export function tokenAnalysisScreen(data: {
-  name: string;
-  price: string;
-  marketCap: string;
-  liquidity: string;
-  safety: string;
-  change24h: string;
-}): Screen {
+export function referralScreen(lang: Language | null): Screen {
   return {
-    text: messages.tokenAnalysisMessage(data),
-    keyboard: keyboards.tokenAnalysisKeyboard(),
+    text: `${t(lang, 'referral.title')}\n\n${t(lang, 'referral.body')}`,
+    keyboard: keyboards.referralKeyboard(lang),
   };
 }
 
-export function buyConfirmScreen(data: {
-  token: string;
-  amount: number;
-  slippage: number;
-  takeProfit: number;
-  stopLoss: number;
-}): Screen {
+export function activationScreen(lang: Language): Screen {
   return {
-    text: messages.buyConfirmMessage(data),
-    keyboard: keyboards.buyConfirmKeyboard(),
+    text: `${t(lang, 'activation.title')}\n\n${t(lang, 'activation.body')}`,
+    keyboard: keyboards.activationKeyboard(lang),
   };
 }
 
-export function sellAmountScreen(data: {
-  token: string;
-  positionSol: number;
-}): Screen {
-  return {
-    text: messages.sellConfirmMessage(data),
-    keyboard: keyboards.sellAmountKeyboard(),
-  };
-}
-
-export function sellConfirmScreen(data: {
-  token: string;
-  positionSol: number;
-}): Screen {
-  return {
-    text: messages.sellConfirmMessage(data) + '\n\nConfirm final sell?',
-    keyboard: keyboards.sellConfirmKeyboard(),
-  };
-}
-
-export function autoTradeScreen(enabled: boolean): Screen {
-  return {
-    text: messages.autoTradeMessage(enabled),
-    keyboard: keyboards.autoTradeKeyboard(enabled),
-  };
-}
-
-export function autoConfigScreen(): Screen {
-  return {
-    text: `⚙️ <b>AUTO CONFIGURATION</b>\n\nAdjust risk parameters.\nAll strategies still respect global safety controls.`,
-    keyboard: keyboards.autoConfigKeyboard(),
-  };
-}
-
-export function walletScreen(data?: {
-  address: string;
-  balance: number;
-  connected: boolean;
-}): Screen {
-  if (!data) {
-    return {
-      text: messages.WALLET_PLACEHOLDER,
-      keyboard: keyboards.walletKeyboard(),
-    };
+export function homeScreen(
+  lang: Language,
+  state: {
+    openPositions: number;
+    realizedPnl: number;
+    autoTrade: boolean;
+    alerts: boolean;
+    paper: boolean;
+    buySize: number;
+    takeProfit: number;
+    stopLoss: number;
+    walletConnected: boolean;
   }
+): Screen {
+  const pnlSign = state.realizedPnl >= 0 ? '+' : '';
+  const on = t(lang, 'home.on');
+  const off = t(lang, 'home.off');
+  const text =
+    `${t(lang, 'home.title')}\n\n` +
+    `${t(lang, 'home.open')}: <b>${state.openPositions}</b>\n` +
+    `${t(lang, 'home.realized')}: <b>${pnlSign}${state.realizedPnl.toFixed(2)} SOL</b>\n\n` +
+    `${t(lang, 'home.setup')}\n\n` +
+    `${t(lang, 'home.auto')}: ${state.autoTrade ? on : off}\n` +
+    `${t(lang, 'home.alerts')}: ${state.alerts ? on : off}\n` +
+    `${t(lang, 'home.paper')}: ${state.paper ? on : off}\n\n` +
+    `${t(lang, 'home.buy')}: <b>${state.buySize} SOL</b>\n` +
+    `${t(lang, 'home.tp')}: <b>+${state.takeProfit}%</b>\n` +
+    `${t(lang, 'home.sl')}: <b>${state.stopLoss}%</b>\n\n` +
+    `${t(lang, 'home.wallet')}: <b>${
+      state.walletConnected
+        ? t(lang, 'home.wallet.connected')
+        : t(lang, 'home.wallet.none')
+    }</b>\n\n` +
+    t(lang, 'home.choose');
+
+  return { text, keyboard: keyboards.homeKeyboard(lang) };
+}
+
+export function manualEntryScreen(lang: Language): Screen {
   return {
-    text: messages.walletMessage(data),
-    keyboard: keyboards.walletKeyboard(),
+    text: `${t(lang, 'manual.title')}\n\n${t(lang, 'manual.body')}`,
+    keyboard: keyboards.manualEntryKeyboard(lang),
   };
 }
 
-export function exportKeyWarningScreen(): Screen {
+export function autoTradeScreen(lang: Language, enabled: boolean): Screen {
+  const status = enabled ? t(lang, 'home.on') : t(lang, 'home.off');
   return {
-    text: messages.EXPORT_KEY_WARNING,
-    keyboard: keyboards.exportKeyWarningKeyboard(),
+    text:
+      `${t(lang, 'auto.title')}\n\n` +
+      `${t(lang, 'auto.status')}\n\n${status}\n\n` +
+      t(lang, 'auto.choose'),
+    keyboard: keyboards.autoTradeKeyboard(lang, enabled),
   };
 }
 
-export function positionsScreen(hasPositions: boolean): Screen {
+export function walletScreen(
+  lang: Language,
+  data: { address: string; balance: number; connected: boolean }
+): Screen {
+  const status = data.connected
+    ? t(lang, 'home.wallet.connected')
+    : t(lang, 'home.wallet.none');
   return {
-    text: hasPositions
-      ? messages.positionsHeader() + '\n(Positions will be listed here.)'
-      : messages.POSITIONS_EMPTY,
-    keyboard: keyboards.positionsKeyboard(),
+    text:
+      `${t(lang, 'wallet.title')}\n\n` +
+      `${t(lang, 'wallet.address')}\n<code>${data.address || '—'}</code>\n\n` +
+      `${t(lang, 'wallet.balance')}\n◎ ${data.balance.toFixed(4)} SOL\n\n` +
+      `${t(lang, 'wallet.status')}\n🔐 ${status}`,
+    keyboard: keyboards.walletKeyboard(lang),
   };
 }
 
-export function alertsScreen(): Screen {
+export function settingsScreen(lang: Language): Screen {
   return {
-    text: messages.ALERTS_SCREEN,
-    keyboard: keyboards.alertsKeyboard(),
+    text: `${t(lang, 'settings.title')}\n\n${t(lang, 'settings.body')}`,
+    keyboard: keyboards.settingsKeyboard(lang),
   };
 }
 
-export function settingsScreen(): Screen {
+export function helpScreen(lang: Language): Screen {
   return {
-    text: messages.SETTINGS_SCREEN,
-    keyboard: keyboards.settingsKeyboard(),
+    text: `${t(lang, 'help.title')}\n\n${t(lang, 'help.body')}`,
+    keyboard: keyboards.helpKeyboard(lang),
   };
 }
 
-export function pnlScreen(data?: {
-  openPnl: number;
-  realizedPnl: number;
-  trades: number;
-  wins: number;
-  losses: number;
-  winRate: number;
-}): Screen {
-  const d = data ?? {
-    openPnl: 0,
-    realizedPnl: 0,
-    trades: 0,
-    wins: 0,
-    losses: 0,
-    winRate: 0,
-  };
+export function securityScreen(lang: Language): Screen {
   return {
-    text: messages.pnlMessage(d),
-    keyboard: keyboards.pnlKeyboard(),
+    text: t(lang, 'security.title'),
+    keyboard: keyboards.securityKeyboard(lang),
   };
 }
 
-export function historyScreen(hasHistory: boolean): Screen {
+export function alertsScreen(lang: Language): Screen {
   return {
-    text: hasHistory
-      ? `📜 <b>TRADE HISTORY</b>\n\n(History entries will appear here.)`
-      : messages.HISTORY_EMPTY,
-    keyboard: keyboards.historyKeyboard(),
+    text: t(lang, 'alerts.title'),
+    keyboard: keyboards.alertsKeyboard(lang),
   };
 }
 
-export function securityScreen(): Screen {
+export function positionsEmptyScreen(lang: Language): Screen {
   return {
-    text: messages.SECURITY_SCREEN,
-    keyboard: keyboards.securityKeyboard(),
+    text: `${t(lang, 'positions.title')}\n\n${t(lang, 'positions.empty')}`,
+    keyboard: keyboards.positionsKeyboard(lang),
   };
 }
 
-export function helpScreen(): Screen {
+export function placeholderScreen(
+  lang: Language,
+  titleKey: string,
+  bodyKey: string
+): Screen {
   return {
-    text: messages.HELP_SCREEN,
-    keyboard: keyboards.helpKeyboard(),
-  };
-}
-
-export function settingsBuySizeScreen(current: number): Screen {
-  return {
-    text: messages.settingsBuySizeMessage(current),
-    keyboard: keyboards.settingsBuySizeKeyboard(),
-  };
-}
-
-export function settingsSlippageScreen(current: number): Screen {
-  return {
-    text: messages.settingsSlippageMessage(current),
-    keyboard: keyboards.settingsSlippageKeyboard(),
-  };
-}
-
-export function settingsTpScreen(current: number): Screen {
-  return {
-    text: messages.settingsTpMessage(current),
-    keyboard: keyboards.settingsTpKeyboard(),
-  };
-}
-
-export function settingsSlScreen(current: number): Screen {
-  return {
-    text: messages.settingsSlMessage(current),
-    keyboard: keyboards.settingsSlKeyboard(),
-  };
-}
-
-export function settingsPaperScreen(enabled: boolean): Screen {
-  return {
-    text: messages.settingsPaperMessage(enabled),
-    keyboard: keyboards.settingsPaperKeyboard(enabled),
-  };
-}
-
-export function valueSavedScreen(label: string, value: string): Screen {
-  return {
-    text: messages.valueSavedMessage(label, value),
-    keyboard: keyboards.settingsSavedKeyboard(),
+    text: `${t(lang, titleKey)}\n\n${t(lang, bodyKey)}`,
+    keyboard: keyboards.simpleNav(lang),
   };
 }
