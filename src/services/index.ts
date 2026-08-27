@@ -16,3 +16,6 @@ export * from './referral.js';
 export * from './leaderboard.js';
 export * from './admin.js';
 export * from './trending.js';
+export * from './solPrice.js';
+export * from './fees.js';
+export * from './rewards.js';
