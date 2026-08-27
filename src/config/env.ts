@@ -1,35 +1,34 @@
 /**
- * Environment validation. Fail fast if critical secrets are missing.
+ * Environment configuration.
+ * Required: BOT_TOKEN, WALLET_ENCRYPTION_SECRET
+ * Recommended: SOLANA_RPC_URL, ADMIN_CHAT_IDS
  */
 
 function required(name: string): string {
   const v = process.env[name];
-  if (!v || v.trim() === '') {
-    throw new Error(`Missing required environment variable: ${name}`);
-  }
-  return v.trim();
+  if (!v) throw new Error(`Missing env: ${name}`);
+  return v;
 }
 
-function optional(name: string, fallback: string): string {
-  const v = process.env[name];
-  return v && v.trim() !== '' ? v.trim() : fallback;
+function optional(name: string, fallback = ''): string {
+  return process.env[name] ?? fallback;
 }
 
 export const env = {
   get BOT_TOKEN() {
-    return required('BOT_TOKEN');
-  },
-  get SOLANA_RPC_URL() {
-    return optional('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
+    return process.env.BOT_TOKEN ?? '';
   },
   get WALLET_ENCRYPTION_SECRET() {
-    return required('WALLET_ENCRYPTION_SECRET');
+    return process.env.WALLET_ENCRYPTION_SECRET ?? '';
+  },
+  get SOLANA_RPC_URL() {
+    return optional(
+      'SOLANA_RPC_URL',
+      'https://api.mainnet-beta.solana.com'
+    );
   },
   get JUPITER_QUOTE_API() {
     return optional('JUPITER_QUOTE_API', 'https://quote-api.jup.ag/v6');
-  },
-  get DEXSCREENER_API() {
-    return optional('DEXSCREENER_API', 'https://api.dexscreener.com/latest/dex');
   },
   get MAX_TRADE_SOL() {
     return Number(optional('MAX_TRADE_SOL', '5'));
@@ -37,12 +36,24 @@ export const env = {
   get MAX_OPEN_POSITIONS() {
     return Number(optional('MAX_OPEN_POSITIONS', '10'));
   },
+  get WEBSITE_URL() {
+    return optional('WEBSITE_URL', '');
+  },
+  get DOCS_URL() {
+    return optional('DOCS_URL', '');
+  },
+  get ADMIN_CHAT_IDS() {
+    return optional('ADMIN_CHAT_IDS', '');
+  },
 };
 
 export function validateEnvForTrading(): void {
-  if (!process.env.WALLET_ENCRYPTION_SECRET) {
+  if (!env.BOT_TOKEN) {
+    console.warn('BOT_TOKEN missing');
+  }
+  if (!env.WALLET_ENCRYPTION_SECRET || env.WALLET_ENCRYPTION_SECRET.length < 16) {
     console.warn(
-      '[config] WALLET_ENCRYPTION_SECRET not set — wallet create/import will fail until set'
+      'WALLET_ENCRYPTION_SECRET should be a long random secret (16+ chars)'
     );
   }
 }
