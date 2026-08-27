@@ -1,9 +1,9 @@
 /**
- * Trade history persistence (in-memory for now).
+ * Trade history persistence (in-memory).
  */
 
-import { randomUUID } from 'node:crypto';
-import type { TradeRecord, TradeMode, TradeSide } from '../types/trading.js';
+import { randomUUID } from 'crypto';
+import type { TradeMode, TradeRecord, TradeSide } from '../types/trading.js';
 
 const records: TradeRecord[] = [];
 
@@ -12,14 +12,13 @@ export function recordTrade(input: {
   mint: string;
   symbol: string;
   side: TradeSide;
-  amount: number;
+  mode: TradeMode;
+  quantity: number;
   price: number;
   valueSol: number;
-  feeSol?: number;
   pnlSol?: number;
-  pnlPct?: number;
-  mode: TradeMode;
   signature?: string;
+  positionId?: string;
 }): TradeRecord {
   const rec: TradeRecord = {
     id: randomUUID(),
@@ -27,17 +26,16 @@ export function recordTrade(input: {
     mint: input.mint,
     symbol: input.symbol,
     side: input.side,
-    amount: input.amount,
+    mode: input.mode,
+    quantity: input.quantity,
     price: input.price,
     valueSol: input.valueSol,
-    feeSol: input.feeSol ?? 0,
     pnlSol: input.pnlSol,
-    pnlPct: input.pnlPct,
-    mode: input.mode,
     signature: input.signature,
+    positionId: input.positionId,
     timestamp: Date.now(),
   };
-  records.unshift(rec);
+  records.push(rec);
   return rec;
 }
 
@@ -48,6 +46,7 @@ export function getHistory(
 ): TradeRecord[] {
   return records
     .filter((r) => r.userId === userId && (mode == null || r.mode === mode))
+    .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, limit);
 }
 
@@ -66,4 +65,8 @@ export function getPnlStats(userId: number, mode?: TradeMode) {
     winRate: sells.length ? (wins.length / sells.length) * 100 : 0,
     realizedPnl: realized,
   };
+}
+
+export function getAllHistoryRecords(): TradeRecord[] {
+  return [...records];
 }
