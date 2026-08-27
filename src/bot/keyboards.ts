@@ -1,6 +1,5 @@
 /**
  * Inline keyboards — language-aware labels via t().
- * Callback data is language-independent.
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -237,6 +236,13 @@ export function leaderboardKeyboard(lang: Language | null): InlineKeyboard {
       btn(t(lang, 'leaderboard.weekly'), 'lb_weekly'),
       btn(t(lang, 'leaderboard.all'), 'lb_all'),
     ],
+    navRow(lang),
+  ];
+}
+
+export function trendingKeyboard(lang: Language | null): InlineKeyboard {
+  return [
+    [btn(t(lang, 'common.refresh'), 'trending_refresh'), btn(t(lang, 'btn.manual'), 'menu_manual')],
     navRow(lang),
   ];
 }
