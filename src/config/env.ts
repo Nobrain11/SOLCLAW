@@ -1,7 +1,5 @@
 /**
- * Environment configuration.
- * Required: BOT_TOKEN, WALLET_ENCRYPTION_SECRET
- * Recommended: SOLANA_RPC_URL, ADMIN_CHAT_IDS
+ * Environment configuration for SOL CLAW.
  */
 
 function required(name: string): string {
@@ -45,15 +43,27 @@ export const env = {
   get ADMIN_CHAT_IDS() {
     return optional('ADMIN_CHAT_IDS', '');
   },
+  get PLATFORM_FEE_BPS() {
+    return optional('PLATFORM_FEE_BPS', '100');
+  },
+  get PROFIT_FEE_BPS() {
+    return optional('PROFIT_FEE_BPS', '100');
+  },
+  get REFERRAL_SHARE_BPS() {
+    return optional('REFERRAL_SHARE_BPS', '6000');
+  },
+  get DOCUMENTATION_URL() {
+    return optional('DOCUMENTATION_URL', optional('DOCS_URL', ''));
+  },
+  get BOT_USERNAME() {
+    return optional('BOT_USERNAME', '');
+  },
 };
 
 export function validateEnvForTrading(): void {
-  if (!env.BOT_TOKEN) {
-    console.warn('BOT_TOKEN missing');
-  }
-  if (!env.WALLET_ENCRYPTION_SECRET || env.WALLET_ENCRYPTION_SECRET.length < 16) {
+  if (!process.env.WALLET_ENCRYPTION_SECRET) {
     console.warn(
-      'WALLET_ENCRYPTION_SECRET should be a long random secret (16+ chars)'
+      '[config] WALLET_ENCRYPTION_SECRET not set — wallet create/import will fail until set'
     );
   }
 }
