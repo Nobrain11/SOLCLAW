@@ -1,6 +1,6 @@
 {
   "name": "solclaw",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "SOL CLAW — live Solana trading terminal + Telegram alerts",
   "type": "module",
   "main": "dist/index.js",
@@ -19,14 +19,14 @@
     "bs58": "^6.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "node-telegram-bot-api": "^0.66.0"
+    "node-telegram-bot-api": "^0.66.0",
+    "tsx": "^4.7.0"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
     "@types/node-telegram-bot-api": "^0.64.0",
-    "tsx": "^4.7.0",
     "typescript": "^5.3.0"
   }
 }

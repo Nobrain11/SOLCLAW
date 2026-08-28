@@ -1,45 +1,62 @@
 /**
- * SOL TRADE BOT bootstrap
+ * SOL CLAW bootstrap
+ * - Always starts the live WEB terminal on process.env.PORT (Railway)
+ * - Starts Telegram bot only when BOT_TOKEN is set
  */
 
-import TelegramBot from 'node-telegram-bot-api';
-import { handleStart, handleCallback, handleText } from './bot/callbacks.js';
 import { validateEnvForTrading } from './config/env.js';
-import { startTpslMonitor } from './services/tpsl.js';
-import { setAdminBot } from './services/admin.js';
-
-const token = process.env.BOT_TOKEN;
-
-if (!token) {
-  console.error('Missing BOT_TOKEN');
-  process.exit(1);
-}
 
 validateEnvForTrading();
 
-const bot = new TelegramBot(token, { polling: true });
-setAdminBot(bot);
-
-bot.onText(/\/start/, (msg) => {
-  handleStart(bot, msg).catch((e) => console.error('start', e));
-});
-
-bot.on('callback_query', (q) => {
-  handleCallback(bot, q).catch((e) => console.error('callback', e));
-});
-
-bot.on('message', (msg) => {
-  if (msg.text && !msg.text.startsWith('/')) {
-    handleText(bot, msg).catch((e) => console.error('text', e));
-  }
-});
-
-startTpslMonitor(async (chatId, text) => {
+async function main(): Promise<void> {
   try {
-    await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-  } catch {
-    /* user may have blocked bot */
+    await import('./web/server.js');
+  } catch (e) {
+    console.error('[solclaw] web terminal failed to start', e);
+    process.exit(1);
   }
-}, 20_000);
 
-console.log('🐱 SOL TRADE BOT running (TP/SL monitor active)');
+  const token = process.env.BOT_TOKEN;
+  if (!token) {
+    console.warn(
+      '[solclaw] BOT_TOKEN not set — web terminal only (Telegram disabled)'
+    );
+    return;
+  }
+
+  try {
+    const TelegramBot = (await import('node-telegram-bot-api')).default;
+    const { handleStart, handleCallback, handleText } = await import(
+      './bot/callbacks.js'
+    );
+    const { startTpslMonitor } = await import('./services/tpsl.js');
+    const { setAdminBot } = await import('./services/admin.js');
+
+    const bot = new TelegramBot(token, { polling: true });
+    setAdminBot(bot);
+
+    bot.onText(/\/start/, (msg) => {
+      handleStart(bot, msg).catch((err) => console.error('start', err));
+    });
+
+    bot.on('callback_query', (q) => {
+      handleCallback(bot, q).catch((err) => console.error('callback', err));
+    });
+
+    bot.on('message', (msg) => {
+      if (msg.text && !msg.text.startsWith('/')) {
+        handleText(bot, msg).catch((err) => console.error('text', err));
+      }
+    });
+
+    startTpslMonitor(bot);
+    console.log('SOL CLAW Telegram bot running (TP/SL monitor active)');
+  } catch (e) {
+    console.error('[solclaw] Telegram bot failed (web still up)', e);
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
