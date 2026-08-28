@@ -1,8 +1,5 @@
 /**
  * SOL CLAW bootstrap
- * 1) Load persistent user DB (Postgres or /data file)
- * 2) Start web terminal on 0.0.0.0:PORT
- * 3) Optional Telegram if TELEGRAM_ENABLED=1
  */
 
 import { validateEnvForTrading } from './config/env.js';
@@ -40,6 +37,9 @@ async function main(): Promise<void> {
     );
     const { startTpslMonitor } = await import('./services/tpsl.js');
     const { setAdminBot } = await import('./services/admin.js');
+    const { startHunterLoop, killHunter } = await import(
+      './services/autoHunter.js'
+    );
 
     const bot = new TelegramBot(token, { polling: true });
     setAdminBot(bot);
@@ -50,6 +50,13 @@ async function main(): Promise<void> {
 
     bot.onText(/\/start/, (msg) => {
       handleStart(bot, msg).catch((err) => console.error('start', err));
+    });
+
+    bot.onText(/\/kill/, (msg) => {
+      const uid = msg.from?.id;
+      if (!uid || !msg.chat?.id) return;
+      killHunter(uid);
+      bot.sendMessage(msg.chat.id, '🛑 Hunter killed.').catch(() => {});
     });
 
     bot.on('callback_query', (q) => {
@@ -63,7 +70,10 @@ async function main(): Promise<void> {
     });
 
     startTpslMonitor(bot);
-    console.log('[solclaw] Telegram bot polling active');
+    startHunterLoop((chatId, text) => {
+      bot.sendMessage(chatId, text, { parse_mode: 'HTML' }).catch(() => {});
+    });
+    console.log('[solclaw] Telegram bot + Auto-Hunter loop active');
   } catch (e) {
     console.error('[solclaw] Telegram failed (web still up)', e);
   }
