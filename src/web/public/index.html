@@ -38,6 +38,50 @@
       <button type="button" class="main-tab" data-view="settings">Settings</button>
     </nav>
 
+    <section id="hunter-dash" class="hunter-dash">
+      <div class="hunter-head">
+        <div>
+          <div class="hunter-title">⚡ AUTO-HUNTER</div>
+          <div id="hunter-status-line" class="hunter-status muted">OFF</div>
+        </div>
+        <div class="hunter-actions">
+          <button type="button" id="btn-hunter-toggle" class="btn primary sm">Enable</button>
+          <button type="button" id="btn-hunter-kill" class="btn ghost sm">Kill</button>
+        </div>
+      </div>
+      <div class="hunter-metrics" id="hunter-metrics">
+        <div><span class="muted">Daily PnL</span><strong id="h-pnl">—</strong></div>
+        <div><span class="muted">Loss Cap</span><strong id="h-cap">—</strong></div>
+        <div><span class="muted">Entries/hr</span><strong id="h-hour">—</strong></div>
+        <div><span class="muted">Today</span><strong id="h-day">—</strong></div>
+        <div><span class="muted">Open</span><strong id="h-open">—</strong></div>
+        <div><span class="muted">Regime</span><strong id="h-regime">—</strong></div>
+      </div>
+      <div class="hunter-panels">
+        <div class="hunter-panel">
+          <div class="panel-label">LIVE HUNT</div>
+          <div id="hunt-list" class="hunt-list"><div class="muted sm">Arm hunter to stream candidates.</div></div>
+        </div>
+        <div class="hunter-panel">
+          <div class="panel-label">LAST DECISIONS</div>
+          <div id="hunt-logs" class="hunt-logs"><div class="muted sm">No decisions yet.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="hunter-modal" class="sheet hidden" role="dialog">
+      <div class="sheet-backdrop" data-close-hunter></div>
+      <div class="sheet-panel">
+        <h2 class="h2">⚡ Enable Auto-Hunter?</h2>
+        <p class="muted sm">Trades automatically on pump.fun curve tokens that pass filters.</p>
+        <p class="muted sm">Daily loss cap: <b>0.5 SOL</b> · Max exposure: <b>25%</b> · Risk of loss.</p>
+        <div class="row" style="margin-top:16px">
+          <button type="button" class="btn ghost grow" data-close-hunter>Cancel</button>
+          <button type="button" id="btn-hunter-confirm" class="btn primary grow">Enable</button>
+        </div>
+      </div>
+    </div>
+
     <section id="view-discover" class="view active">
       <div class="toolbar">
         <div class="seg tabs-feed" id="feed-tabs">
@@ -56,7 +100,6 @@
         </div>
         <button type="button" id="btn-refresh" class="btn ghost sm" title="Refresh">↻</button>
       </div>
-
       <div class="table-head desktop-only">
         <div class="col token">Token</div>
         <div class="col age">Age</div>
@@ -68,7 +111,6 @@
         <div class="col safety">Safety</div>
         <div class="col action">Buy</div>
       </div>
-
       <div id="token-list" class="token-list" aria-live="polite"></div>
     </section>
 
@@ -99,7 +141,11 @@
           <div><span class="muted">Balance</span><strong id="pf-sol">—</strong></div>
           <div><span class="muted">Network</span><strong>Solana</strong></div>
         </div>
-        <p class="muted sm">Extension wallet or bot-managed wallet via Telegram.</p>
+        <p class="muted sm">Bot-managed wallet required for Auto-Hunter.</p>
+        <div class="row" style="margin-top:12px">
+          <button type="button" id="btn-create-wallet" class="btn primary">Create wallet</button>
+          <button type="button" id="btn-import-wallet" class="btn ghost">Import</button>
+        </div>
       </div>
     </section>
 
