@@ -1,6 +1,5 @@
 /**
  * SOL CLAW — Live Web Trading Terminal
- * Primary: browser → terminal (no referral gate)
  */
 
 import express from 'express';
@@ -12,6 +11,7 @@ import { getTrendingTokens } from '../services/trending.js';
 import { scanToken } from '../services/scanner.js';
 import { getMarketData } from '../services/market.js';
 import { isValidPublicKey } from '../services/rpc.js';
+import { registerTradeRoutes } from './api/trade.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -19,9 +19,11 @@ const PORT = Number(process.env.PORT || process.env.WEB_PORT || 3000);
 const APP_URL = process.env.APP_URL || process.env.WEBSITE_URL || '';
 
 const app = express();
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.static(publicDir));
+
+registerTradeRoutes(app);
 
 app.get('/api/sol-price', async (_req, res) => {
   try {
@@ -95,20 +97,15 @@ app.get('/api/token/:mint', async (req, res) => {
       sharePath: `/trade/${mint}`,
     });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'scan failed';
-    res.status(502).json({ ok: false, error: msg });
+    res.status(502).json({
+      ok: false,
+      error: e instanceof Error ? e.message : 'scan failed',
+    });
   }
 });
 
 app.get('/api/ref/capture', (req, res) => {
   const ref = String(req.query.ref || '').slice(0, 64);
-  if (ref && ref !== 'self') {
-    res.cookie?.('solclaw_ref', ref, {
-      maxAge: 30 * 24 * 3600 * 1000,
-      httpOnly: true,
-      sameSite: 'lax',
-    });
-  }
   res.json({ ok: true, ref: ref || null });
 });
 
@@ -130,5 +127,5 @@ app.get(['/', '/trade/:mint', '/rewards'], (_req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`🐾 SOL CLAW web terminal → http://localhost:${PORT}`);
+  console.log(`SOL CLAW web terminal → http://localhost:${PORT}`);
 });
