@@ -1,6 +1,6 @@
 /**
  * Auto-Hunter — pump.fun sentinel
- * OFF by default. Confirm to arm. Survival over gambling.
+ * OFF by default. Helius discovery + social gate + Jito fills.
  */
 
 import { getTrendingTokens, type TrendingToken } from './trending.js';
@@ -9,6 +9,7 @@ import { getMarketData } from './market.js';
 import { executeTrade } from './trading.js';
 import { hasWallet, getWalletInfo } from './wallet.js';
 import { getOpenPositions, closePosition } from './positions.js';
+import { discoverQueue, applySocialFilter } from './hunterDiscover.js';
 import type { TradeMode } from '../types/trading.js';
 
 export type TpTier = { profit: number; sellPercent: number };
@@ -310,9 +311,22 @@ async function runFilters(
   }
   if (!analysis.tradable) reasons.push('not tradable');
 
-  if ((token.volume24h ?? 0) > 5000 || (token.marketCap ?? 0) > 20_000) {
+  const volHeat =
+    (token.volume24h ?? 0) > 5000 || (token.marketCap ?? 0) > 20_000;
+  if (volHeat) {
     boost = true;
     reasons.push('volume heat');
+  }
+
+  try {
+    const social = await applySocialFilter(token.mint, token.symbol, volHeat);
+    if (!social.pass) reasons.push(social.reason);
+    else {
+      reasons.push(social.reason);
+      if (social.boost) boost = true;
+    }
+  } catch {
+    /* soft */
   }
 
   try {
@@ -320,9 +334,17 @@ async function runFilters(
     if (m.liquidityUsd != null && m.liquidityUsd < 500) {
       reasons.push(`usd liq low`);
     }
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
 
-  const hardFails = reasons.filter((r) => !r.includes('heat'));
+  const hardFails = reasons.filter(
+    (r) =>
+      !r.includes('heat') &&
+      !r.includes('social hot') &&
+      !r.includes('social warm') &&
+      !r.includes('filters clean')
+  );
   const pass =
     hardFails.length === 0 &&
     (token.source === 'pump' || (token.liquidity ?? 0) > 0);
@@ -347,7 +369,10 @@ function canEnter(s: HunterState): string | null {
   return null;
 }
 
-async function tryEntry(s: HunterState, token: TrendingToken): Promise<string | null> {
+async function tryEntry(
+  s: HunterState,
+  token: TrendingToken
+): Promise<string | null> {
   if (s.enteredMints.has(token.mint)) return null;
   const block = canEnter(s);
   if (block) {
@@ -379,17 +404,27 @@ async function tryEntry(s: HunterState, token: TrendingToken): Promise<string | 
   let balance = 0;
   try {
     balance = (await getWalletInfo(s.userId))?.balanceSol ?? 0;
-  } catch { /* */ }
+  } catch {
+    /* */
+  }
   const open = getOpenPositions(s.userId, s.mode);
   const exposure = open.reduce((a, p) => a + p.entrySol, 0);
   const maxExp = (balance || 1) * (s.settings.maxExposurePercent / 100);
   if (exposure >= maxExp) {
     const msg = `⏭️ Skipped $${filt.ticker} — exposure cap.`;
-    pushLog(s, { at: Date.now(), kind: 'skip', ticker: filt.ticker, mint: token.mint, message: msg });
+    pushLog(s, {
+      at: Date.now(),
+      kind: 'skip',
+      ticker: filt.ticker,
+      mint: token.mint,
+      message: msg,
+    });
     return msg;
   }
 
-  const size = filt.boost ? Math.min(s.settings.maxBuy * 2, 0.2) : s.settings.maxBuy;
+  const size = filt.boost
+    ? Math.min(s.settings.maxBuy * 2, 0.2)
+    : s.settings.maxBuy;
   const result = await executeTrade({
     userId: s.userId,
     chatId: s.chatId,
@@ -404,7 +439,13 @@ async function tryEntry(s: HunterState, token: TrendingToken): Promise<string | 
 
   if (result.state !== 'CONFIRMED') {
     const msg = `⏭️ Skipped $${filt.ticker} — fill failed.`;
-    pushLog(s, { at: Date.now(), kind: 'skip', ticker: filt.ticker, mint: token.mint, message: msg });
+    pushLog(s, {
+      at: Date.now(),
+      kind: 'skip',
+      ticker: filt.ticker,
+      mint: token.mint,
+      message: msg,
+    });
     return msg;
   }
 
@@ -439,11 +480,23 @@ async function manageExits(s: HunterState): Promise<string[]> {
       closePosition(pos.id, cur);
       s.dailyLoss += Math.abs(pos.entrySol * (pnlPct / 100));
       const msg = `🛑 Stop $${pos.symbol} — ${pnlPct.toFixed(0)}%. Full exit.`;
-      pushLog(s, { at: Date.now(), kind: 'exit', ticker: pos.symbol, mint: pos.mint, message: msg, pnlSol: pos.entrySol * (pnlPct / 100) });
+      pushLog(s, {
+        at: Date.now(),
+        kind: 'exit',
+        ticker: pos.symbol,
+        mint: pos.mint,
+        message: msg,
+        pnlSol: pos.entrySol * (pnlPct / 100),
+      });
       msgs.push(msg);
       if (s.dailyLoss >= st.dailyLossCap) {
         s.enabled = false;
-        pushLog(s, { at: Date.now(), kind: 'lock', ticker: '—', message: `🔒 Daily cap. Hunter OFF.` });
+        pushLog(s, {
+          at: Date.now(),
+          kind: 'lock',
+          ticker: '—',
+          message: `🔒 Daily cap. Hunter OFF.`,
+        });
       }
       continue;
     }
@@ -452,7 +505,13 @@ async function manageExits(s: HunterState): Promise<string[]> {
     if (ageMin >= st.timeStopMinutes && pnlPct > -10 && pnlPct < 15) {
       closePosition(pos.id, cur);
       const msg = `⏰ Time-stop $${pos.symbol} — flat after ${st.timeStopMinutes}m.`;
-      pushLog(s, { at: Date.now(), kind: 'exit', ticker: pos.symbol, mint: pos.mint, message: msg });
+      pushLog(s, {
+        at: Date.now(),
+        kind: 'exit',
+        ticker: pos.symbol,
+        mint: pos.mint,
+        message: msg,
+      });
       msgs.push(msg);
       continue;
     }
@@ -460,7 +519,13 @@ async function manageExits(s: HunterState): Promise<string[]> {
     if (peak >= st.trailingAfter && peak - pnlPct >= st.trailingPullback) {
       closePosition(pos.id, cur);
       const msg = `💎 Trail exit $${pos.symbol} — peak +${peak.toFixed(0)}%.`;
-      pushLog(s, { at: Date.now(), kind: 'exit', ticker: pos.symbol, mint: pos.mint, message: msg });
+      pushLog(s, {
+        at: Date.now(),
+        kind: 'exit',
+        ticker: pos.symbol,
+        mint: pos.mint,
+        message: msg,
+      });
       msgs.push(msg);
       continue;
     }
@@ -472,7 +537,13 @@ async function manageExits(s: HunterState): Promise<string[]> {
         sold.add(tier.profit);
         s.soldTiers.set(pos.id, sold);
         const msg = `💎 Taking profit $${pos.symbol} — sold ${tier.sellPercent}% at +${tier.profit}%.`;
-        pushLog(s, { at: Date.now(), kind: 'exit', ticker: pos.symbol, mint: pos.mint, message: msg });
+        pushLog(s, {
+          at: Date.now(),
+          kind: 'exit',
+          ticker: pos.symbol,
+          mint: pos.mint,
+          message: msg,
+        });
         msgs.push(msg);
         if (tier.profit >= 200 || sold.size >= st.takeProfitTiers.length) {
           closePosition(pos.id, cur);
@@ -498,14 +569,27 @@ export async function hunterTick(userId: number): Promise<string[]> {
   }
   const out: string[] = [...(await manageExits(s))];
   try {
-    const tokens = await getTrendingTokens(12, true);
-    for (const token of tokens.slice(0, 6)) {
+    const queue = await discoverQueue(8);
+    for (const token of queue) {
       if (s.enteredMints.has(token.mint)) continue;
       const msg = await tryEntry(s, token);
       if (msg) out.push(msg);
       if (!s.enabled || canEnter(s)) break;
     }
-  } catch { /* */ }
+  } catch {
+    /* fallback trending only */
+    try {
+      const tokens = await getTrendingTokens(8, true);
+      for (const token of tokens) {
+        if (s.enteredMints.has(token.mint)) continue;
+        const msg = await tryEntry(s, token);
+        if (msg) out.push(msg);
+        if (!s.enabled || canEnter(s)) break;
+      }
+    } catch {
+      /* */
+    }
+  }
   s.lastScanAt = Date.now();
   return out;
 }
