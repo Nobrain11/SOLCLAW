@@ -1,18 +1,20 @@
 /**
- * Auto-Hunter web API — status, enable, pause, kill, live candidates.
+ * Auto-Hunter web API — status, enable, pause, kill.
  */
 
 import type { Express, Request, Response } from 'express';
 import {
-  getHunterDashboard,
   enableHunter,
   disableHunter,
   killHunter,
   startHunterLoop,
   hunterTick,
   getHunter,
-  HUNTER_DEFAULTS,
 } from '../../services/autoHunter.js';
+import {
+  getHunterDashboard,
+  HUNTER_DEFAULTS,
+} from '../../services/hunterDashboard.js';
 import { hasWallet } from '../../services/wallet.js';
 import { getOrCreateSession, type WebSession } from '../session.js';
 
@@ -62,8 +64,7 @@ export function registerHunterRoutes(app: Express): void {
 
   app.post('/api/hunter/enable', async (req, res) => {
     const s = sessionFromReq(req, res);
-    const confirm = req.body?.confirm === true;
-    if (!confirm) {
+    if (req.body?.confirm !== true) {
       res.status(400).json({
         ok: false,
         error: 'confirm_required',
@@ -76,7 +77,7 @@ export function registerHunterRoutes(app: Express): void {
       res.status(400).json({
         ok: false,
         error: 'wallet_required',
-        message: 'Connect or create a wallet before enabling Auto-Hunter.',
+        message: 'Create a wallet in Portfolio before enabling Auto-Hunter.',
       });
       return;
     }
