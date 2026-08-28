@@ -1,32 +1,35 @@
 /**
- * Environment configuration for SOL CLAW.
+ * Environment validation. Soft for web-only deploys.
  */
 
 function required(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`Missing env: ${name}`);
-  return v;
+  if (!v || v.trim() === '') {
+    throw new Error(`Missing required environment variable: ${name}`);
+  }
+  return v.trim();
 }
 
-function optional(name: string, fallback = ''): string {
-  return process.env[name] ?? fallback;
+function optional(name: string, fallback: string): string {
+  const v = process.env[name];
+  return v && v.trim() !== '' ? v.trim() : fallback;
 }
 
 export const env = {
   get BOT_TOKEN() {
-    return process.env.BOT_TOKEN ?? '';
-  },
-  get WALLET_ENCRYPTION_SECRET() {
-    return process.env.WALLET_ENCRYPTION_SECRET ?? '';
+    return optional('BOT_TOKEN', '');
   },
   get SOLANA_RPC_URL() {
-    return optional(
-      'SOLANA_RPC_URL',
-      'https://api.mainnet-beta.solana.com'
-    );
+    return optional('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
+  },
+  get WALLET_ENCRYPTION_SECRET() {
+    return optional('WALLET_ENCRYPTION_SECRET', '');
   },
   get JUPITER_QUOTE_API() {
     return optional('JUPITER_QUOTE_API', 'https://quote-api.jup.ag/v6');
+  },
+  get DEXSCREENER_API() {
+    return optional('DEXSCREENER_API', 'https://api.dexscreener.com/latest/dex');
   },
   get MAX_TRADE_SOL() {
     return Number(optional('MAX_TRADE_SOL', '5'));
