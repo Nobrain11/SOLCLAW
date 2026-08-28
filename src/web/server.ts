@@ -20,7 +20,7 @@ const PORT = Number(process.env.PORT || process.env.WEB_PORT || 3000);
 const APP_URL = process.env.APP_URL || process.env.WEBSITE_URL || '';
 
 const app = express();
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors());
 app.use(express.json());
 app.use(express.static(publicDir));
 
@@ -61,11 +61,54 @@ app.get('/api/trending', async (req, res) => {
         liquidity: t.liquidity,
         source: t.source,
         url: t.url,
+        image: t.image ?? null,
         dex: t.source === 'pump' ? 'Pump.fun' : 'Solana DEX',
       })),
     });
   } catch {
     res.status(502).json({ ok: false, error: 'trending unavailable', tokens: [] });
+  }
+});
+
+/** Terminal feed — logos, sparklines, full columns */
+app.get('/api/terminal', async (req, res) => {
+  try {
+    const limit = Math.min(Number(req.query.limit) || 20, 30);
+    const tab = String(req.query.tab || 'trending');
+    const force = req.query.refresh === '1';
+    const { enrichTerminalToken } = await import('../services/tokenMeta.js');
+    let items = await getTrendingTokens(limit, force);
+    if (tab === 'surge') {
+      items = [...items].sort(
+        (a, b) => (b.change24h ?? -999) - (a.change24h ?? -999)
+      );
+    } else if (tab === 'top') {
+      items = [...items].sort(
+        (a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)
+      );
+    }
+    const tokens = await Promise.all(
+      items.slice(0, limit).map((t) =>
+        enrichTerminalToken({
+          mint: t.mint,
+          name: t.name,
+          symbol: t.symbol,
+          priceUsd: t.priceUsd,
+          marketCap: t.marketCap,
+          volume24h: t.volume24h,
+          change24h: t.change24h,
+          liquidity: t.liquidity,
+          source: t.source,
+          url: t.url,
+          image: t.image ?? null,
+          createdAt: t.createdAt ?? null,
+        })
+      )
+    );
+    res.json({ ok: true, tab, count: tokens.length, updatedAt: Date.now(), tokens });
+  } catch (e) {
+    console.error('[terminal]', e);
+    res.status(502).json({ ok: false, error: 'terminal feed unavailable', tokens: [] });
   }
 });
 
@@ -98,15 +141,20 @@ app.get('/api/token/:mint', async (req, res) => {
       sharePath: `/trade/${mint}`,
     });
   } catch (e) {
-    res.status(502).json({
-      ok: false,
-      error: e instanceof Error ? e.message : 'scan failed',
-    });
+    const msg = e instanceof Error ? e.message : 'scan failed';
+    res.status(502).json({ ok: false, error: msg });
   }
 });
 
 app.get('/api/ref/capture', (req, res) => {
   const ref = String(req.query.ref || '').slice(0, 64);
+  if (ref && ref !== 'self') {
+    res.cookie('solclaw_ref', ref, {
+      maxAge: 30 * 24 * 3600 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+    });
+  }
   res.json({ ok: true, ref: ref || null });
 });
 
