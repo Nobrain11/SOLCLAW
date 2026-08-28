@@ -12,6 +12,7 @@ import { scanToken } from '../services/scanner.js';
 import { getMarketData } from '../services/market.js';
 import { isValidPublicKey } from '../services/rpc.js';
 import { registerTradeRoutes } from './api/trade.js';
+import { userCount, getBackend } from '../db/persist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const publicDir = path.join(__dirname, 'public');
@@ -110,7 +111,13 @@ app.get('/api/ref/capture', (req, res) => {
 });
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, product: 'SOL CLAW', mode: 'web-terminal' });
+  res.json({
+    ok: true,
+    product: 'SOL CLAW',
+    mode: 'web-terminal',
+    users: userCount(),
+    db: getBackend(),
+  });
 });
 
 app.get('/api/config', (_req, res) => {
