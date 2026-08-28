@@ -1,5 +1,6 @@
 /**
- * SOL CLAW inline keyboards — premium hierarchy.
+ * SOL CLAW inline keyboards
+ * Nav uses ← Return only (never Home).
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -49,39 +50,47 @@ export function activationKeyboard(lang: Language | null): InlineKeyboard {
   return [[btn(t(lang, 'activation.enter'), 'onboard_enter_home')]];
 }
 
+/** Compact terminal home — 2 columns, no junk rows */
 export function homeKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🤖 AUTO TRADE', 'menu_auto'), btn('⚡ BUY / SELL', 'menu_manual')],
-    [btn('🔥 TRENDING', 'menu_trending'), btn('📈 POSITIONS', 'positions_open')],
-    [btn('💼 WALLET', 'menu_wallet'), btn('🔔 ALERTS', 'menu_alerts')],
-    [btn('🏆 PNL', 'menu_pnl'), btn('🔭 TRACKER', 'menu_tracker')],
-    [btn('🎁 REWARDS', 'menu_rewards'), btn('🏆 BOARD', 'menu_leaderboard')],
-    [btn('⚙️ SETTINGS', 'menu_settings'), btn('🔐 SECURITY', 'menu_security')],
-    [btn('📖 DOCS', 'menu_docs'), btn('🌍 LANG', 'settings_language'), btn('❓ HELP', 'menu_help')],
+    [btn('⚡ Trade', 'menu_manual'), btn('🤖 Auto', 'menu_auto')],
+    [btn('🔥 Pump.fun', 'menu_trending'), btn('📈 Positions', 'positions_open')],
+    [btn('💼 Wallet', 'menu_wallet'), btn('🏆 PnL', 'menu_pnl')],
+    [btn('🎁 Rewards', 'menu_rewards'), btn('⚙️ Setup', 'menu_settings')],
   ];
 }
 
-export function navRow(lang: Language | null, backCallback?: string): TelegramBot.InlineKeyboardButton[] {
-  const row: TelegramBot.InlineKeyboardButton[] = [];
-  if (backCallback) row.push(btn('🔙 BACK', backCallback));
-  row.push(btn('🏠 HOME', 'home'));
-  return row;
+/** Single Return button — goes to previous screen or main terminal */
+export function navRow(
+  lang: Language | null,
+  backCallback?: string
+): TelegramBot.InlineKeyboardButton[] {
+  const target = backCallback || 'home';
+  return [btn('← Return', target)];
 }
 
 export function manualEntryKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('◎ 0.01', 'manual_size_0.01'), btn('◎ 0.05', 'manual_size_0.05'), btn('◎ 0.10', 'manual_size_0.10'), btn('◎ 0.25', 'manual_size_0.25')],
-    [btn('⚙️ SETTINGS', 'menu_settings')],
+    [
+      btn('◎ 0.01', 'manual_size_0.01'),
+      btn('◎ 0.05', 'manual_size_0.05'),
+      btn('◎ 0.10', 'manual_size_0.10'),
+      btn('◎ 0.25', 'manual_size_0.25'),
+    ],
     navRow(lang),
   ];
 }
 
 export function tokenTradeKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🟢 BUY', 'manual_buy'), btn('🔴 SELL', 'manual_sell')],
-    [btn('◎ 0.01', 'manual_size_0.01'), btn('◎ 0.05', 'manual_size_0.05'), btn('◎ 0.10', 'manual_size_0.10'), btn('◎ 0.25', 'manual_size_0.25')],
-    [btn('🎯 MAX BUY', 'settings_buysize'), btn('🔄 REFRESH', 'token_refresh')],
-    [btn('🤖 AUTO', 'menu_auto'), btn('🔭 TRACK', 'menu_tracker')],
+    [btn('🟢 Buy', 'manual_buy'), btn('🔴 Sell', 'manual_sell')],
+    [
+      btn('◎ 0.01', 'manual_size_0.01'),
+      btn('◎ 0.05', 'manual_size_0.05'),
+      btn('◎ 0.10', 'manual_size_0.10'),
+      btn('◎ 0.25', 'manual_size_0.25'),
+    ],
+    [btn('🔄 Refresh', 'token_refresh')],
     navRow(lang, 'menu_manual'),
   ];
 }
@@ -92,40 +101,44 @@ export function tokenAnalysisKeyboard(lang: Language | null): InlineKeyboard {
 
 export function buyConfirmKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🟢 CONFIRM BUY', 'manual_buy_confirm'), btn('🔙 CANCEL', 'manual_buy_cancel')],
+    [btn('🟢 Confirm buy', 'manual_buy_confirm'), btn('Cancel', 'manual_buy_cancel')],
     navRow(lang, 'menu_manual'),
   ];
 }
 
 export function sellAmountKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('25%', 'manual_sell_25'), btn('50%', 'manual_sell_50'), btn('75%', 'manual_sell_75'), btn('100%', 'manual_sell_100')],
+    [
+      btn('25%', 'manual_sell_25'),
+      btn('50%', 'manual_sell_50'),
+      btn('75%', 'manual_sell_75'),
+      btn('100%', 'manual_sell_100'),
+    ],
     navRow(lang, 'menu_manual'),
   ];
 }
 
 export function sellConfirmKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🔴 CONFIRM SELL', 'manual_sell_confirm'), btn('🔙 CANCEL', 'manual_sell_cancel')],
+    [btn('🔴 Confirm sell', 'manual_sell_confirm'), btn('Cancel', 'manual_sell_cancel')],
     navRow(lang, 'menu_manual'),
   ];
 }
 
 export function autoTradeKeyboard(lang: Language | null, enabled: boolean): InlineKeyboard {
-  const enableLabel = enabled ? '🔴 STOP AUTO' : '🟢 START AUTO';
+  const enableLabel = enabled ? '🔴 Stop auto' : '🟢 Start auto';
   return [
-    [btn('🛡 Careful', 'auto_strategy_careful'), btn('⚖️ Balanced', 'auto_strategy_balanced')],
-    [btn('🚀 Bold', 'auto_strategy_bold'), btn('🧠 Custom', 'auto_strategy_custom')],
-    [btn(enableLabel, 'auto_toggle'), btn('⚙️ Customize', 'auto_customize')],
-    [btn('📈 Positions', 'positions_open'), btn('🏆 Results', 'menu_pnl')],
+    [btn('Careful', 'auto_strategy_careful'), btn('Balanced', 'auto_strategy_balanced')],
+    [btn('Bold', 'auto_strategy_bold'), btn('Custom', 'auto_strategy_custom')],
+    [btn(enableLabel, 'auto_toggle')],
     navRow(lang),
   ];
 }
 
 export function autoConfigKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('💰 Risk', 'auto_cfg_risk'), btn('🎯 TP', 'auto_cfg_tp')],
-    [btn('🛑 SL', 'auto_cfg_sl'), btn('📊 Max', 'auto_cfg_maxpos')],
+    [btn('Risk', 'auto_cfg_risk'), btn('TP', 'auto_cfg_tp')],
+    [btn('SL', 'auto_cfg_sl'), btn('Max pos', 'auto_cfg_maxpos')],
     navRow(lang, 'menu_auto'),
   ];
 }
@@ -134,15 +147,14 @@ export function walletKeyboard(lang: Language | null): InlineKeyboard {
   return [
     [btn('🔄 Refresh', 'wallet_refresh'), btn('➕ Create', 'wallet_create')],
     [btn('📥 Import', 'wallet_import'), btn('💸 Withdraw', 'wallet_withdraw')],
-    [btn('🔐 Security', 'menu_security')],
     navRow(lang),
   ];
 }
 
 export function exportKeyWarningKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('✅ I understand — export', 'wallet_export_confirm')],
-    [btn('🔙 Cancel', 'menu_wallet'), btn('🏠 HOME', 'home')],
+    [btn('✅ Export key', 'wallet_export_confirm')],
+    [btn('← Return', 'menu_wallet')],
   ];
 }
 
@@ -155,15 +167,16 @@ export function positionsKeyboard(lang: Language | null): InlineKeyboard {
 
 export function alertsKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🟢 ON', 'alerts_enable'), btn('🔴 OFF', 'alerts_disable')],
+    [btn('ON', 'alerts_enable'), btn('OFF', 'alerts_disable')],
     navRow(lang),
   ];
 }
 
+/** Settings: only language, size, paper — not a dump of every menu */
 export function settingsKeyboard(lang: Language | null): InlineKeyboard {
   return [
     [btn('🌍 Language', 'settings_language'), btn('💰 Buy size', 'settings_buysize')],
-    [btn('📄 Paper', 'settings_paper')],
+    [btn('📄 Paper mode', 'settings_paper')],
     navRow(lang),
   ];
 }
@@ -174,19 +187,24 @@ export function settingsLanguageKeyboard(): InlineKeyboard {
 
 export function settingsBuySizeKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('0.05', 'set_buysize_0.05'), btn('0.10', 'set_buysize_0.10'), btn('0.25', 'set_buysize_0.25'), btn('0.50', 'set_buysize_0.50')],
+    [
+      btn('0.05', 'set_buysize_0.05'),
+      btn('0.10', 'set_buysize_0.10'),
+      btn('0.25', 'set_buysize_0.25'),
+      btn('0.50', 'set_buysize_0.50'),
+    ],
     [btn('1.00', 'set_buysize_1.00')],
     navRow(lang, 'menu_settings'),
   ];
 }
 
 export function settingsPaperKeyboard(lang: Language | null, enabled: boolean): InlineKeyboard {
-  const label = enabled ? '🔴 OFF' : '🟢 ON';
+  const label = enabled ? 'Turn paper OFF' : 'Turn paper ON';
   return [[btn(label, 'set_paper_toggle')], navRow(lang, 'menu_settings')];
 }
 
 export function settingsSavedKeyboard(lang: Language | null): InlineKeyboard {
-  return [[btn('⚙️ Settings', 'menu_settings'), btn('🏠 HOME', 'home')]];
+  return [[btn('← Return', 'menu_settings')]];
 }
 
 export function pnlKeyboard(lang: Language | null): InlineKeyboard {
@@ -212,29 +230,28 @@ export function securityKeyboard(lang: Language | null): InlineKeyboard {
 
 export function helpKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('⚡ Manual', 'menu_manual'), btn('🤖 Auto', 'menu_auto')],
+    [btn('⚡ Trade', 'menu_manual'), btn('🤖 Auto', 'menu_auto')],
     navRow(lang),
   ];
 }
 
 export function leaderboardKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('📅 24h', 'lb_daily'), btn('📆 7d', 'lb_weekly'), btn('♾ All', 'lb_all')],
+    [btn('24h', 'lb_daily'), btn('7d', 'lb_weekly'), btn('All', 'lb_all')],
     navRow(lang),
   ];
 }
 
 export function trendingKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🔄 Refresh', 'trending_refresh'), btn('⚡ BUY / SELL', 'menu_manual')],
+    [btn('🔄 Refresh', 'trending_refresh'), btn('⚡ Trade', 'menu_manual')],
     navRow(lang),
   ];
 }
 
 export function rewardsKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('🔗 Referral Link', 'rewards_link'), btn('💰 Claim', 'rewards_claim')],
-    [btn('📋 Settings', 'rewards_settings')],
+    [btn('🔗 Referral link', 'rewards_link'), btn('💰 Claim', 'rewards_claim')],
     navRow(lang),
   ];
 }
