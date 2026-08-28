@@ -45,7 +45,7 @@ app.get('/api/sol-price', async (_req, res) => {
 
 app.get('/api/trending', async (req, res) => {
   try {
-    const limit = Math.min(Number(req.query.limit) || 16, 24);
+    const limit = Math.min(Number(req.query.limit) || 50, 100);
     const force = req.query.refresh === '1';
     const items = await getTrendingTokens(limit, force);
     res.json({

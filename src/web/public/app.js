@@ -135,7 +135,7 @@ function renderTokenRows(listEl, tokens) {
 
 async function refreshTrending() {
   try {
-    const j = await api('/api/trending?limit=20&refresh=1');
+    const j = await api('/api/trending?limit=50&refresh=1');
     renderTokenRows($('#token-list'), j.tokens || []);
   } catch {
     const el = $('#token-list');
@@ -145,7 +145,7 @@ async function refreshTrending() {
 
 async function refreshPulse() {
   try {
-    const j = await api('/api/trending?limit=24&refresh=1');
+    const j = await api('/api/trending?limit=50&refresh=1');
     const toks = (j.tokens || []).slice().sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
     renderTokenRows($('#pulse-list'), toks);
   } catch {
