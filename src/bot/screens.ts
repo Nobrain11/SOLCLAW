@@ -1,5 +1,5 @@
 /**
- * SOL CLAW premium screens — dense trading terminal style.
+ * SOL CLAW screens — compact terminal style
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -14,10 +14,7 @@ export type Screen = {
 
 export function languageScreen(): Screen {
   return {
-    text:
-      `🌍 <b>Welcome to SOL CLAW</b>\n\n` +
-      `Choose your language:\n\n` +
-      `🇬🇧 English · 🇨🇳 中文 · 🇪🇸 Español`,
+    text: `🐾 <b>SOL CLAW</b>\n\nChoose language / 选择语言 / Idioma`,
     keyboard: keyboards.languageKeyboard(),
   };
 }
@@ -26,11 +23,7 @@ export function welcomeScreen(lang: Language): Screen {
   return {
     text:
       `🐾 <b>SOL CLAW</b>\n\n` +
-      `Your Solana trading terminal.\n\n` +
-      `• Manual & auto trading\n` +
-      `• Positions, TP/SL, alerts\n` +
-      `• Wallet tracker & rewards\n\n` +
-      `Trade pump.fun with risk controls.`,
+      `Solana · Pump.fun trading terminal.`,
     keyboard: keyboards.welcomeKeyboard(lang),
   };
 }
@@ -38,20 +31,15 @@ export function welcomeScreen(lang: Language): Screen {
 export function referralScreen(lang: Language | null): Screen {
   return {
     text:
-      `🔗 <b>REFERRAL REQUIRED</b>\n\n` +
-      `SOL CLAW requires a valid invitation to continue.\n\n` +
-      `Open an invite link or enter a code:\n` +
-      `<code>/start r_CODE</code>`,
+      `🔗 <b>Referral</b> (optional)\n\n` +
+      `Enter a code if you have one, or continue trading.`,
     keyboard: keyboards.referralKeyboard(lang),
   };
 }
 
 export function activationScreen(lang: Language): Screen {
   return {
-    text:
-      `✅ <b>ACCOUNT READY</b>\n\n` +
-      `Welcome to SOL CLAW.\n` +
-      `Your account is activated.`,
+    text: `✅ Ready. Enter the terminal.`,
     keyboard: keyboards.activationKeyboard(lang),
   };
 }
@@ -73,22 +61,18 @@ export function homeScreen(
   }
 ): Screen {
   const pnlSign = state.realizedPnl >= 0 ? '+' : '';
-  const on = '🟢';
-  const off = '🔴';
   const solLine = state.solPriceLine ?? '◎ SOL —';
   const portfolio = (state.portfolioSol ?? 0).toFixed(4);
   const text =
-    `🐾 <b>SOL CLAW</b>\n\n` +
-    `${solLine}\n\n` +
-    `💼 <b>Portfolio</b>\n` +
-    `${portfolio} SOL\n\n` +
-    `📊 Open Positions: <b>${state.openPositions}</b>\n` +
-    `🏆 PnL: <b>${pnlSign}${state.realizedPnl.toFixed(4)} SOL</b>\n\n` +
-    `🤖 Auto ${state.autoTrade ? on : off}  ·  ` +
-    `🔔 Alerts ${state.alerts ? on : off}  ·  ` +
-    `📄 Paper ${state.paper ? on : off}\n` +
-    `💰 Buy ${state.buySize} · 🎯 TP +${state.takeProfit}% · 🛑 SL ${state.stopLoss}%\n` +
-    `🔐 Wallet: ${state.walletConnected ? 'Connected' : 'Not connected'}`;
+    `🐾 <b>SOL CLAW</b>\n` +
+    `<i>Pump.fun · Solana</i>\n\n` +
+    `${solLine}\n` +
+    `━━━━━━━━━━━━\n` +
+    `◎ <b>${portfolio}</b> SOL\n` +
+    `Open ${state.openPositions} · PnL ${pnlSign}${state.realizedPnl.toFixed(4)}\n` +
+    `Buy ${state.buySize} · TP +${state.takeProfit}% · SL ${state.stopLoss}%\n` +
+    `Auto ${state.autoTrade ? 'ON' : 'OFF'} · Paper ${state.paper ? 'ON' : 'OFF'}\n` +
+    `Wallet ${state.walletConnected ? 'connected' : '—'}`;
 
   return { text, keyboard: keyboards.homeKeyboard(lang) };
 }
@@ -96,21 +80,16 @@ export function homeScreen(
 export function manualEntryScreen(lang: Language): Screen {
   return {
     text:
-      `⚡ <b>MANUAL TRADE</b>\n\n` +
-      `Paste a Solana / pump.fun contract address.\n\n` +
-      `We validate address, liquidity, risk & market data.`,
+      `⚡ <b>Trade</b>\n\n` +
+      `Paste a pump.fun / Solana mint.`,
     keyboard: keyboards.manualEntryKeyboard(lang),
   };
 }
 
 export function autoTradeScreen(lang: Language, enabled: boolean): Screen {
-  const status = enabled ? '🟢 ON' : '🔴 OFF';
+  const status = enabled ? 'ON' : 'OFF';
   return {
-    text:
-      `🤖 <b>AUTO TRADE</b>\n\n` +
-      `Status: <b>${status}</b>\n\n` +
-      `Choose strategy:\n` +
-      `🛡 Careful · ⚖️ Balanced · 🚀 Bold · 🧠 Custom`,
+    text: `🤖 <b>Auto</b> · ${status}\n\nPick a strategy, then start.`,
     keyboard: keyboards.autoTradeKeyboard(lang, enabled),
   };
 }
@@ -119,24 +98,19 @@ export function walletScreen(
   lang: Language,
   data: { address: string; balance: number; connected: boolean }
 ): Screen {
-  const short =
-    data.address && data.address.length > 12
-      ? `${data.address.slice(0, 4)}…${data.address.slice(-4)}`
-      : data.address || '—';
   return {
     text:
-      `💼 <b>WALLET</b>\n\n` +
-      `Address: <code>${short}</code>\n` +
-      (data.connected ? `<code>${data.address}</code>\n\n` : '\n') +
-      `Balance: <b>◎ ${data.balance.toFixed(4)} SOL</b>\n` +
-      `Status: ${data.connected ? '🔐 Connected' : 'Not connected'}`,
+      `💼 <b>Wallet</b>\n\n` +
+      (data.connected
+        ? `<code>${data.address}</code>\n\n◎ <b>${data.balance.toFixed(4)}</b> SOL`
+        : `No wallet yet.\nCreate or import one.`),
     keyboard: keyboards.walletKeyboard(lang),
   };
 }
 
 export function settingsScreen(lang: Language): Screen {
   return {
-    text: `⚙️ <b>SETTINGS</b>\n\nBuy size, paper mode, language, risk.`,
+    text: `⚙️ <b>Setup</b>\n\nLanguage · buy size · paper mode`,
     keyboard: keyboards.settingsKeyboard(lang),
   };
 }
@@ -144,11 +118,11 @@ export function settingsScreen(lang: Language): Screen {
 export function helpScreen(lang: Language): Screen {
   return {
     text:
-      `❓ <b>HELP</b>\n\n` +
-      `⚡ Manual — paste CA, scan, buy/sell\n` +
-      `🤖 Auto — strategy within risk limits\n` +
-      `💼 Wallet — create, import, withdraw\n` +
-      `🎁 Rewards — referral + cashback`,
+      `❓ <b>Help</b>\n\n` +
+      `Trade — paste mint, buy/sell\n` +
+      `Pump.fun — live coin feed\n` +
+      `Wallet — create / import\n` +
+      `← Return goes back one screen`,
     keyboard: keyboards.helpKeyboard(lang),
   };
 }
@@ -156,25 +130,23 @@ export function helpScreen(lang: Language): Screen {
 export function securityScreen(lang: Language): Screen {
   return {
     text:
-      `🔐 <b>SECURITY</b>\n\n` +
-      `• Keys encrypted at rest (AES-256-GCM)\n` +
-      `• Export requires double confirmation\n` +
-      `• Never shared in logs or errors\n` +
-      `• All trades need explicit confirm`,
+      `🔐 <b>Security</b>\n\n` +
+      `Keys encrypted (AES-256-GCM)\n` +
+      `Never logged · confirm every live trade`,
     keyboard: keyboards.securityKeyboard(lang),
   };
 }
 
 export function alertsScreen(lang: Language): Screen {
   return {
-    text: `🔔 <b>ALERTS</b>\n\nToken · price · position · wallet alerts.`,
+    text: `🔔 <b>Alerts</b>`,
     keyboard: keyboards.alertsKeyboard(lang),
   };
 }
 
 export function positionsEmptyScreen(lang: Language): Screen {
   return {
-    text: `📈 <b>POSITIONS</b>\n\nNo open positions.`,
+    text: `📈 <b>Positions</b>\n\nNone open.`,
     keyboard: keyboards.positionsKeyboard(lang),
   };
 }
