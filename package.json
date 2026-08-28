@@ -1,13 +1,14 @@
 {
   "name": "solclaw",
-  "version": "0.1.0",
-  "description": "SOL TRADE BOT — professional Solana trading assistant for Telegram",
+  "version": "0.2.0",
+  "description": "SOL CLAW — live Solana trading terminal + Telegram alerts",
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
     "start": "tsx src/index.ts",
     "dev": "tsx src/index.ts",
+    "web": "tsx src/web/server.ts",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
@@ -16,12 +17,16 @@
   "dependencies": {
     "@solana/web3.js": "^1.98.0",
     "bs58": "^6.0.0",
-    "node-telegram-bot-api": "^0.66.0",
-    "tsx": "^4.7.0",
-    "typescript": "^5.3.0"
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "node-telegram-bot-api": "^0.66.0"
   },
   "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
-    "@types/node-telegram-bot-api": "^0.64.0"
+    "@types/node-telegram-bot-api": "^0.64.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.3.0"
   }
 }
