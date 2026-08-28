@@ -50,17 +50,15 @@ export function activationKeyboard(lang: Language | null): InlineKeyboard {
   return [[btn(t(lang, 'activation.enter'), 'onboard_enter_home')]];
 }
 
-/** Compact terminal home — 2 columns, no junk rows */
 export function homeKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('⚡ Trade', 'menu_manual'), btn('🤖 Auto', 'menu_auto')],
+    [btn('⚡ Trade', 'menu_manual'), btn('⚡ Auto-Hunter', 'hunter_menu')],
     [btn('🔥 Pump.fun', 'menu_trending'), btn('📈 Positions', 'positions_open')],
     [btn('💼 Wallet', 'menu_wallet'), btn('🏆 PnL', 'menu_pnl')],
     [btn('🎁 Rewards', 'menu_rewards'), btn('⚙️ Setup', 'menu_settings')],
   ];
 }
 
-/** Single Return button — goes to previous screen or main terminal */
 export function navRow(
   lang: Language | null,
   backCallback?: string
@@ -126,12 +124,29 @@ export function sellConfirmKeyboard(lang: Language | null): InlineKeyboard {
 }
 
 export function autoTradeKeyboard(lang: Language | null, enabled: boolean): InlineKeyboard {
-  const enableLabel = enabled ? '🔴 Stop auto' : '🟢 Start auto';
+  return hunterKeyboard(enabled, false);
+}
+
+export function hunterKeyboard(enabled: boolean, locked: boolean): InlineKeyboard {
+  if (locked) {
+    return [
+      [btn('🔒 Locked (daily cap)', 'hunter_status')],
+      [btn('Last 10', 'hunter_logs')],
+      navRow(null),
+    ];
+  }
+  const toggle = enabled ? '🟢 Hunting… (tap to stop)' : '⚡ Enable Auto-Hunter';
   return [
-    [btn('Careful', 'auto_strategy_careful'), btn('Balanced', 'auto_strategy_balanced')],
-    [btn('Bold', 'auto_strategy_bold'), btn('Custom', 'auto_strategy_custom')],
-    [btn(enableLabel, 'auto_toggle')],
-    navRow(lang),
+    [btn(toggle, enabled ? 'hunter_disable' : 'hunter_enable_ask')],
+    [btn('Status', 'hunter_status'), btn('Last 10', 'hunter_logs')],
+    [btn('🛑 Kill', 'hunter_kill')],
+    navRow(null),
+  ];
+}
+
+export function hunterConfirmKeyboard(): InlineKeyboard {
+  return [
+    [btn('✅ Arm Hunter', 'hunter_enable_confirm'), btn('Cancel', 'hunter_menu')],
   ];
 }
 
@@ -172,9 +187,9 @@ export function alertsKeyboard(lang: Language | null): InlineKeyboard {
   ];
 }
 
-/** Settings: only language, size, paper — not a dump of every menu */
 export function settingsKeyboard(lang: Language | null): InlineKeyboard {
   return [
+    [btn('⚡ Auto-Hunter', 'hunter_menu')],
     [btn('🌍 Language', 'settings_language'), btn('💰 Buy size', 'settings_buysize')],
     [btn('📄 Paper mode', 'settings_paper')],
     navRow(lang),
@@ -230,7 +245,7 @@ export function securityKeyboard(lang: Language | null): InlineKeyboard {
 
 export function helpKeyboard(lang: Language | null): InlineKeyboard {
   return [
-    [btn('⚡ Trade', 'menu_manual'), btn('🤖 Auto', 'menu_auto')],
+    [btn('⚡ Trade', 'menu_manual'), btn('⚡ Auto-Hunter', 'hunter_menu')],
     navRow(lang),
   ];
 }
