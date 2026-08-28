@@ -62,7 +62,9 @@ async function main(): Promise<void> {
       }
     });
 
-    startTpslMonitor(bot);
+    startTpslMonitor(async (chatId, text) => {
+      await bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+    });
     console.log('[solclaw] Telegram bot polling active');
   } catch (e) {
     console.error('[solclaw] Telegram failed (web still up)', e);

@@ -17,6 +17,7 @@ export function recordTrade(input: {
   price: number;
   valueSol: number;
   pnlSol?: number;
+  pnlPct?: number;
   signature?: string;
   positionId?: string;
 }): TradeRecord {
@@ -30,7 +31,9 @@ export function recordTrade(input: {
     quantity: input.quantity,
     price: input.price,
     valueSol: input.valueSol,
+    feeSol: 0,
     pnlSol: input.pnlSol,
+    pnlPct: input.pnlPct,
     signature: input.signature,
     positionId: input.positionId,
     timestamp: Date.now(),

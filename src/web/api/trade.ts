@@ -144,7 +144,7 @@ export function registerTradeRoutes(app: Express): void {
           entryPrice: p.entryPrice,
           currentPrice: p.currentPrice,
           unrealizedPnl: p.unrealizedPnl,
-          sizeSol: p.sizeSol,
+          sizeSol: p.quantity * p.currentPrice,
           mode: p.mode,
         })),
       });

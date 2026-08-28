@@ -95,12 +95,13 @@ export interface TradeRecord {
   mint: string;
   symbol: string;
   side: TradeSide;
-  amount: number;
+  quantity: number;
   price: number;
   valueSol: number;
   feeSol: number;
   pnlSol?: number;
   pnlPct?: number;
+  positionId?: string;
   mode: TradeMode;
   signature?: string;
   timestamp: number;

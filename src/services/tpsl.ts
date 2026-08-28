@@ -71,7 +71,7 @@ export async function processHits(
           mint: pos.mint,
           symbol: pos.symbol,
           side: 'SELL',
-          amount: pos.quantity,
+          quantity: pos.quantity,
           price: hit.exitPrice,
           valueSol: pos.quantity * hit.exitPrice,
           pnlSol: pos.quantity * hit.exitPrice - pos.entrySol,

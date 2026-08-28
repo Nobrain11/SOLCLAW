@@ -3,7 +3,7 @@
  */
 
 export { handleCallback, handleStart, handleText } from './callbacks.js';
-export { homeScreen, DEFAULT_HOME_STATE } from './screens.js';
+export { homeScreen } from './screens.js';
 export type { Screen } from './screens.js';
 export * as keyboards from './keyboards.js';
 export * as messages from './messages.js';
