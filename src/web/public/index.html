@@ -2,77 +2,144 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <title>SOL CLAW — Live Terminal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <title>SOL CLAW</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div id="app">
     <header class="topbar">
-      <div class="brand"><span class="logo">🐾</span><span class="name">SOL CLAW</span></div>
-      <div id="sol-price" class="sol-price">◎ SOL —</div>
-      <nav class="nav">
-        <button type="button" data-view="terminal" class="nav-btn active">Terminal</button>
-        <button type="button" data-view="positions" class="nav-btn">Positions</button>
-        <button type="button" data-view="wallet" class="nav-btn">Wallet</button>
-        <button type="button" data-view="rewards" class="nav-btn">Rewards</button>
-      </nav>
+      <button type="button" id="btn-back" class="icon-btn hidden" aria-label="Back">←</button>
+      <div class="brand">
+        <span class="logo">🐾</span>
+        <span class="name" id="top-title">SOL CLAW</span>
+      </div>
+      <div id="sol-price" class="sol-price">◎ —</div>
+      <button type="button" id="btn-deposit" class="deposit-btn">Deposit</button>
     </header>
-    <main>
-      <section id="view-terminal" class="view active">
-        <div class="grid">
-          <aside class="panel portfolio-panel">
-            <h2>Portfolio</h2>
-            <div class="metric"><span class="label">Balance</span><span id="portfolio-sol" class="value">0.00 SOL</span></div>
-            <div class="metric"><span class="label">Open</span><span id="open-count" class="value">0</span></div>
-            <div class="metric"><span class="label">PnL</span><span id="pnl-total" class="value pnl">+0.00 SOL</span></div>
-            <div class="wallet-status" id="wallet-status">
-              <p class="muted">No wallet connected</p>
-              <button type="button" id="btn-connect" class="btn primary">Connect / Create Wallet</button>
-            </div>
-          </aside>
-          <section class="panel trade-panel">
-            <h2>⚡ Manual Trade</h2>
-            <label class="field"><span>Token CA</span>
-              <input id="mint-input" type="text" placeholder="Paste Solana token address" autocomplete="off" spellcheck="false" />
-            </label>
-            <div class="row">
-              <button type="button" id="btn-scan" class="btn primary">Scan</button>
-              <button type="button" id="btn-clear" class="btn ghost">Clear</button>
-            </div>
-            <div id="token-card" class="token-card hidden"></div>
-            <div id="trade-controls" class="trade-controls hidden">
-              <div class="amounts">
-                <button type="button" class="amt" data-sol="0.01">◎ 0.01</button>
-                <button type="button" class="amt" data-sol="0.05">◎ 0.05</button>
-                <button type="button" class="amt" data-sol="0.10">◎ 0.10</button>
-                <button type="button" class="amt" data-sol="0.25">◎ 0.25</button>
-              </div>
-              <label class="field"><span>Custom SOL</span>
-                <input id="custom-sol" type="number" min="0" step="0.01" placeholder="0.05" />
-              </label>
-              <div class="row">
-                <button type="button" id="btn-buy" class="btn buy">🟢 BUY</button>
-                <button type="button" id="btn-sell" class="btn sell">🔴 SELL</button>
-              </div>
-              <div class="row secondary-actions">
-                <button type="button" class="btn ghost" id="btn-share">🤑 Share Token</button>
-                <button type="button" class="btn ghost" id="btn-refresh-token">🔄 Refresh</button>
-              </div>
-              <p id="trade-status" class="status muted"></p>
-            </div>
-          </section>
-          <section class="panel trending-panel">
-            <div class="panel-head"><h2>🔥 Trending</h2><span id="trend-clock" class="muted">live · 10s</span></div>
-            <div id="trending-list" class="trending-list"><p class="muted">Loading live market data…</p></div>
-          </section>
+
+    <section id="view-discover" class="view active">
+      <div class="tabs">
+        <button type="button" class="tab active" data-tab="top">Top</button>
+        <button type="button" class="tab" data-tab="trending">Trending</button>
+        <button type="button" class="tab" data-tab="surge">Surge</button>
+      </div>
+      <div class="chain-row">
+        <span class="chip active">◎ Solana</span>
+        <span class="chip muted">Pump.fun</span>
+        <span class="chip muted">Jupiter</span>
+      </div>
+      <div id="token-list" class="token-list">
+        <p class="muted center">Loading live Solana pairs…</p>
+      </div>
+    </section>
+
+    <section id="view-pulse" class="view">
+      <div class="tabs">
+        <button type="button" class="tab active">New Pairs</button>
+        <button type="button" class="tab muted-tab">Migrated</button>
+      </div>
+      <div id="pulse-list" class="token-list">
+        <p class="muted center">Loading new Solana / pump pairs…</p>
+      </div>
+    </section>
+
+    <section id="view-tracker" class="view">
+      <h2 class="section-title">Wallet Tracker</h2>
+      <p class="muted center">Track wallets — Solana only.</p>
+      <div class="row pad">
+        <input id="track-input" class="input grow" placeholder="Solana wallet address" />
+        <button type="button" id="btn-add-track" class="btn primary">Add</button>
+      </div>
+      <div id="track-list" class="token-list"></div>
+    </section>
+
+    <section id="view-portfolio" class="view">
+      <div class="portfolio-hero">
+        <div class="muted">Total Value</div>
+        <div id="pf-value" class="hero-val">$0</div>
+        <div class="pf-grid">
+          <div><span class="muted">Balance</span><strong id="pf-sol">0 SOL</strong></div>
+          <div><span class="muted">Unrealized</span><strong id="pf-u">+$0</strong></div>
+          <div><span class="muted">Realized</span><strong id="pf-r">+$0</strong></div>
+          <div><span class="muted">Open</span><strong id="pf-open">0</strong></div>
         </div>
-      </section>
-      <section id="view-positions" class="view"><div class="panel"><h2>📈 Positions</h2><div id="positions-list"><p class="muted">No open positions.</p></div></div></section>
-      <section id="view-wallet" class="view"><div class="panel"><h2>💼 Wallet</h2><p class="muted">Connect wallet to trade from the web terminal. Telegram bot wallets remain available.</p><button type="button" id="btn-wallet-refresh" class="btn primary">Refresh</button></div></section>
-      <section id="view-rewards" class="view"><div class="panel"><h2>🎁 Rewards</h2><p class="muted">Referral is optional — never required at startup.</p><div id="rewards-body"><p>👥 Referrals: 0</p><p>💰 Unclaimed: 0 SOL</p><button type="button" id="btn-copy-ref" class="btn primary">🔗 Copy referral link</button></div></div></section>
-    </main>
-    <footer class="footer"><span>SOL CLAW · Live Solana terminal</span><span id="footer-clock"></span></footer>
+        <div class="row">
+          <button type="button" class="btn ghost" id="btn-create-wallet">Create wallet</button>
+          <button type="button" class="btn ghost" id="btn-import-wallet">Import</button>
+          <button type="button" class="btn ghost" id="btn-toggle-paper">Paper</button>
+        </div>
+        <p id="pf-addr" class="addr muted"></p>
+      </div>
+      <h3 class="section-title">Positions</h3>
+      <div id="positions-list"><p class="muted center">No open positions</p></div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <h2 class="section-title">Settings</h2>
+      <div class="settings-block">
+        <label class="field"><span>Network</span>
+          <div class="chip active">◎ Solana / Pump.fun only</div>
+        </label>
+        <label class="field"><span>Default buy (SOL)</span>
+          <input id="set-buy" class="input" type="number" step="0.01" min="0.01" value="0.05" />
+        </label>
+        <label class="field"><span>Slippage %</span>
+          <input id="set-slip" class="input" type="number" step="0.1" min="0.1" value="10" />
+        </label>
+        <button type="button" id="btn-save-set" class="btn primary full">Save</button>
+      </div>
+      <div class="settings-block">
+        <h3 class="section-title">Rewards</h3>
+        <p class="muted">Optional referral — never required to trade.</p>
+        <button type="button" id="btn-copy-ref" class="btn ghost full">Copy referral link</button>
+      </div>
+    </section>
+
+    <section id="view-token" class="view">
+      <div id="token-header" class="token-header"></div>
+      <div id="token-metrics" class="metrics-grid"></div>
+      <div id="token-chart" class="chart-box">
+        <iframe id="chart-frame" title="chart" sandbox="allow-scripts allow-same-origin" loading="lazy"></iframe>
+      </div>
+      <div class="trade-sheet">
+        <div class="amounts">
+          <button type="button" class="amt" data-sol="0.05">0.05</button>
+          <button type="button" class="amt active" data-sol="0.1">0.1</button>
+          <button type="button" class="amt" data-sol="0.25">0.25</button>
+          <button type="button" class="amt" data-sol="0.5">0.5</button>
+          <button type="button" class="amt" data-sol="1">1</button>
+        </div>
+        <input id="custom-sol" class="input" type="number" step="0.01" placeholder="Custom SOL" />
+        <div class="buy-sell-row">
+          <button type="button" id="btn-buy" class="btn buy">Buy</button>
+          <button type="button" id="btn-sell" class="btn sell">Sell</button>
+        </div>
+        <div class="row secondary">
+          <button type="button" id="btn-share" class="btn ghost">Share</button>
+          <button type="button" id="btn-refresh-token" class="btn ghost">Refresh</button>
+        </div>
+        <p id="trade-status" class="status"></p>
+      </div>
+    </section>
+
+    <nav class="bottom-nav">
+      <button type="button" data-view="discover" class="nav-item active">
+        <span class="nav-ico">◎</span><span>Discover</span>
+      </button>
+      <button type="button" data-view="pulse" class="nav-item">
+        <span class="nav-ico">⚡</span><span>Pulse</span>
+      </button>
+      <button type="button" data-view="tracker" class="nav-item">
+        <span class="nav-ico">⌖</span><span>Tracker</span>
+      </button>
+      <button type="button" data-view="portfolio" class="nav-item">
+        <span class="nav-ico">▦</span><span>Portfolio</span>
+      </button>
+      <button type="button" data-view="settings" class="nav-item">
+        <span class="nav-ico">⚙</span><span>Settings</span>
+      </button>
+    </nav>
   </div>
   <script src="/app.js" type="module"></script>
 </body>
