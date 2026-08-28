@@ -148,9 +148,14 @@ export async function resolveSparkline(
 }
 
 function ageFromTs(ts: number | null | undefined): number | null {
-  if (ts == null || !Number.isFinite(ts)) return null;
-  const ms = ts > 1e12 ? ts : ts * 1000;
-  return Math.max(0, Math.floor((Date.now() - ms) / 60_000));
+  if (ts == null || !Number.isFinite(ts) || ts <= 0) return null;
+  const ms = ts > 1e12 ? ts : ts > 1e9 ? ts * 1000 : null;
+  if (ms == null) return null;
+  const min = Math.floor((Date.now() - ms) / 60_000);
+  if (min < 0) return null;
+  // hide ages older than 30d in meme terminal
+  if (min > 60 * 24 * 30) return null;
+  return min;
 }
 
 export async function enrichTerminalToken(raw: {
@@ -204,7 +209,12 @@ export async function enrichTerminalToken(raw: {
       if (pc?.h24 != null) change = pc.h24;
       if (typeof sol.marketCap === 'number') mcap = sol.marketCap;
       else if (typeof sol.fdv === 'number') mcap = sol.fdv;
-      if (typeof sol.pairCreatedAt === 'number') ageMin = ageFromTs(sol.pairCreatedAt);
+      if (typeof sol.pairCreatedAt === 'number') {
+        const pairAge = ageFromTs(sol.pairCreatedAt);
+        if (pairAge != null && (ageMin == null || pairAge < ageMin)) {
+          ageMin = pairAge;
+        }
+      }
     }
   } catch {
     /* */
