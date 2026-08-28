@@ -2,7 +2,7 @@
  * SOL CLAW — Live Web Trading Terminal
  */
 
-import express from 'express';
+import express, { type Express } from 'express';
 import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,11 +15,13 @@ import { registerTradeRoutes } from './api/trade.js';
 import { userCount, getBackend } from '../db/persist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const publicDir = path.join(__dirname, 'public');
+const publicDir = process.env.VERCEL
+  ? path.join(process.cwd(), 'public')
+  : path.join(__dirname, 'public');
 const PORT = Number(process.env.PORT || process.env.WEB_PORT || 3000);
 const APP_URL = process.env.APP_URL || process.env.WEBSITE_URL || '';
 
-const app = express();
+const app: Express = express();
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 app.use(express.static(publicDir));
@@ -133,6 +135,10 @@ app.get(['/', '/trade/:mint', '/rewards'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`[solclaw] web terminal listening on 0.0.0.0:${PORT}`);
-});
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`[solclaw] web terminal listening on 0.0.0.0:${PORT}`);
+  });
+}
