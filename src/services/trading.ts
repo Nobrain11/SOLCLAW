@@ -1,8 +1,6 @@
 /**
  * Live + paper trading executor.
- * Live: Jupiter quote → build → sign → send → confirm → position.
- * Never reports success without confirmation.
- * pump.fun: works when Jupiter has a route (graduated / liquid).
+ * Live: Jupiter quote → build → sign → Jito/RPC send → confirm → position.
  */
 
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -15,6 +13,7 @@ import { recordTrade } from './history.js';
 import { getQuote, getSwapTransaction, WSOL } from './jupiter.js';
 import { getPublicKey, _internalLoadKeypair } from './wallet.js';
 import { getConnection, confirmSignature } from './rpc.js';
+import { sendWithJitoFallback } from './jito.js';
 import { getMarketData } from './market.js';
 
 export async function executeTrade(req: TradeRequest): Promise<TradeResult> {
@@ -78,10 +77,7 @@ async function executeLive(req: TradeRequest): Promise<TradeResult> {
       const kp = _internalLoadKeypair(req.userId);
       tx.sign([kp]);
       const conn = getConnection();
-      const signature = await conn.sendRawTransaction(tx.serialize(), {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
+      const signature = await sendWithJitoFallback(conn, tx.serialize());
       const conf = await confirmSignature(signature, 90_000);
       if (!conf.confirmed) {
         return { state: 'FAILED', error: 'Transaction failed to confirm', signature, mode: 'LIVE' };
@@ -145,10 +141,7 @@ async function executeLive(req: TradeRequest): Promise<TradeResult> {
     const kp = _internalLoadKeypair(req.userId);
     tx.sign([kp]);
     const conn = getConnection();
-    const signature = await conn.sendRawTransaction(tx.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+    const signature = await sendWithJitoFallback(conn, tx.serialize());
     const conf = await confirmSignature(signature, 90_000);
     if (!conf.confirmed) {
       return { state: 'FAILED', error: 'Sell failed to confirm', signature, mode: 'LIVE' };
