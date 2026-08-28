@@ -17,7 +17,9 @@ function deriveKey(secret: string, salt: Buffer): Buffer {
 
 export function encryptPrivateKey(plaintext: string, secret: string): string {
   if (!secret || secret.length < 16) {
-    throw new Error('Encryption secret too short');
+    throw new Error(
+      'WALLET_ENCRYPTION_SECRET must be at least 16 characters (set in Railway Variables)'
+    );
   }
   const salt = randomBytes(SALT_LEN);
   const key = deriveKey(secret, salt);
@@ -31,7 +33,9 @@ export function encryptPrivateKey(plaintext: string, secret: string): string {
 
 export function decryptPrivateKey(payload: string, secret: string): string {
   if (!secret || secret.length < 16) {
-    throw new Error('Encryption secret too short');
+    throw new Error(
+      'WALLET_ENCRYPTION_SECRET must be at least 16 characters (set in Railway Variables)'
+    );
   }
   const packed = Buffer.from(payload, 'base64');
   if (packed.length < SALT_LEN + IV_LEN + TAG_LEN + 1) {
