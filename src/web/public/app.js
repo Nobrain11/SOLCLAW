@@ -1,394 +1,374 @@
+/**
+ * SOL CLAW terminal — logos, sparklines, wallet connect, responsive table
+ */
+
 const state = {
+  tab: 'trending',
+  tf: '5m',
   view: 'discover',
-  history: [],
-  buySol: 0.1,
-  paper: true,
-  ref: null,
-  selectedMint: null,
-  token: null,
-  config: { appUrl: '', trendingRefreshMs: 10000 },
-  busy: false,
+  tokens: [],
+  loading: false,
+  wallet: null,
+  buyPreset: Number(localStorage.getItem('buyPreset') || 0.1),
+  watching: JSON.parse(localStorage.getItem('watching') || '[]'),
 };
 
-const $ = (s) => document.querySelector(s);
-const $$ = (s) => [...document.querySelectorAll(s)];
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 
-function fmtUsd(n, d = 2) {
+function fmtUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
-  if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-  if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  if (Math.abs(n) >= 1) return `$${n.toFixed(d)}`;
-  return `$${Number(n).toPrecision(4)}`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+  if (n >= 1) return `$${n.toFixed(2)}`;
+  return `$${n.toFixed(5)}`;
 }
-function fmtPct(n) {
-  if (n == null || Number.isNaN(n)) return '—';
-  return `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+function fmtAge(min) {
+  if (min == null) return '—';
+  if (min < 60) return `${min}m`;
+  if (min < 60 * 24) return `${Math.floor(min / 60)}h`;
+  return `${Math.floor(min / 1440)}d`;
+}
+function shortAddr(a) {
+  if (!a || a.length < 8) return a || '—';
+  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+}
+
+function sparkSVG(pts, up) {
+  if (!pts || pts.length < 2) {
+    return `<svg class="spark" viewBox="0 0 72 28" aria-hidden="true"></svg>`;
+  }
+  const min = Math.min(...pts);
+  const max = Math.max(...pts);
+  const span = max - min || 1;
+  const w = 72;
+  const h = 28;
+  const pad = 2;
+  const coords = pts.map((p, i) => {
+    const x = pad + (i / (pts.length - 1)) * (w - pad * 2);
+    const y = h - pad - ((p - min) / span) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  const color = up ? '#22c55e' : '#ef4444';
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" aria-hidden="true">
+    <polyline fill="none" stroke="${color}" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" points="${coords.join(' ')}"/>
+  </svg>`;
+}
+
+function logoHTML(t) {
+  const letter = (t.symbol || '?').slice(0, 2).toUpperCase();
+  if (t.image) {
+    return `<img class="token-logo" src="${escapeAttr(t.image)}" alt="" loading="lazy" referrerpolicy="no-referrer"
+      onerror="this.outerHTML='<div class=\'token-logo fallback\'>${letter}</div>'" />`;
+  }
+  return `<div class="token-logo fallback">${letter}</div>`;
+}
+
+function escapeAttr(s) {
+  return String(s).replace(/"/g, '"');
 }
 function escapeHtml(s) {
-  return String(s ?? '')
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return String(s)
+    .replace(/&/g, '&')
+    .replace(/</g, '<')
+    .replace(/>/g, '>');
 }
 
-async function api(path, opts = {}) {
-  const res = await fetch(path, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json', ...(opts.headers || {}) },
-    ...opts,
-  });
-  return res.json();
+function skeletons(n = 8) {
+  return Array.from({ length: n }, () => `
+    <div class="skel-row">
+      <div class="skel skel-logo"></div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:8px">
+        <div class="skel" style="width:40%"></div>
+        <div class="skel" style="width:70%"></div>
+      </div>
+      <div class="skel" style="width:72px;height:28px"></div>
+    </div>
+  `).join('');
 }
 
-function showView(name, { push = true, title } = {}) {
-  if (push && state.view && state.view !== name) {
-    state.history.push(state.view);
-    if (state.history.length > 20) state.history.shift();
-  }
-  state.view = name;
-  $$('.view').forEach((v) => v.classList.toggle('active', v.id === `view-${name}`));
-  $$('.nav-item').forEach((b) => {
-    const isToken = name === 'token';
-    b.classList.toggle('active', !isToken && b.dataset.view === name);
-  });
-  const back = $('#btn-back');
-  if (back) {
-    const canBack = state.history.length > 0 || name === 'token';
-    back.classList.toggle('hidden', !canBack);
-  }
-  const titles = {
-    discover: 'SOL CLAW',
-    pulse: 'Pulse',
-    tracker: 'Tracker',
-    portfolio: 'Portfolio',
-    settings: 'Settings',
-    token: title || state.token?.symbol || 'Token',
-  };
-  const tt = $('#top-title');
-  if (tt) tt.textContent = titles[name] || 'SOL CLAW';
-  if (name === 'portfolio') refreshPortfolio();
-  if (name === 'discover') refreshTrending();
-  if (name === 'pulse') refreshPulse();
-}
+function rowHTML(t) {
+  const up = (t.changePct ?? 0) >= 0;
+  const ch = t.changePct != null
+    ? `${up ? '+' : ''}${t.changePct.toFixed(1)}%`
+    : '—';
+  const buys = t.buys ?? 0;
+  const sells = t.sells ?? 0;
+  const risk = t.safety?.risk || 'med';
+  const score = t.safety?.score ?? '—';
 
-function goBack() {
-  if (state.view === 'token' && state.history.length === 0) {
-    showView('discover', { push: false });
-    history.replaceState(null, '', '/');
-    return;
-  }
-  const prev = state.history.pop() || 'discover';
-  showView(prev, { push: false });
-  if (prev !== 'token') history.replaceState(null, '', '/');
-}
-
-async function ensureSession() {
-  try {
-    const j = await api('/api/session', {
-      method: 'POST',
-      body: JSON.stringify({ ref: state.ref }),
-    });
-    if (j.ok) {
-      state.paper = j.paper;
-      state.buySol = j.buySize || state.buySol;
-    }
-  } catch {}
-}
-
-async function refreshSolPrice() {
-  try {
-    const j = await api('/api/sol-price');
-    if (!j.ok) return;
-    const el = $('#sol-price');
-    if (el) {
-      el.textContent = j.header || '◎ —';
-      el.style.color = (j.change24h ?? 0) >= 0 ? 'var(--green)' : 'var(--red)';
-    }
-  } catch {}
-}
-
-function renderTokenRows(listEl, tokens) {
-  if (!listEl) return;
-  if (!tokens?.length) {
-    listEl.innerHTML = `<p class="muted center">No live Solana pairs right now.</p>`;
-    return;
-  }
-  listEl.innerHTML = tokens
-    .map((t) => {
-      const ch = t.change24h;
-      const up = ch == null ? '' : ch >= 0 ? 'up' : 'down';
-      const ico = (t.symbol || '?').slice(0, 2).toUpperCase();
-      return `<button type="button" class="token-row" data-mint="${t.mint}">
-        <div class="tok-ico">${escapeHtml(ico)}</div>
-        <div>
-          <div class="tok-name">$${escapeHtml(t.symbol)} · ${escapeHtml(t.name)}</div>
-          <div class="tok-meta">${escapeHtml(t.dex || t.source)} · Vol ${fmtUsd(t.volume24h)}</div>
+  return `
+  <article class="token-row" data-mint="${escapeAttr(t.mint)}">
+    <div class="main">
+      ${logoHTML(t)}
+      <div class="token-meta">
+        <div class="token-title">
+          <span class="sym">$${escapeHtml(t.symbol)}</span>
+          <span class="name">${escapeHtml(t.name)}</span>
         </div>
-        <div class="tok-chg ${up}">${fmtPct(ch)}</div>
-        <div class="tok-mc">${fmtUsd(t.marketCap)}<small>Liq ${fmtUsd(t.liquidity)}</small></div>
-      </button>`;
-    })
-    .join('');
-  listEl.querySelectorAll('.token-row').forEach((b) =>
-    b.addEventListener('click', () => openToken(b.dataset.mint))
-  );
+        <div class="token-sub mobile-metrics">
+          <span>MC <b>${fmtUsd(t.marketCap)}</b></span>
+          <span>Liq <b>${fmtUsd(t.liquidity)}</b></span>
+          <span class="${up ? 'up' : 'down'}">${ch}</span>
+          <span>${fmtAge(t.ageMin)}</span>
+        </div>
+      </div>
+    </div>
+    <div class="cell desktop-metric muted">${fmtAge(t.ageMin)}</div>
+    <div class="cell desktop-metric">${fmtUsd(t.marketCap)}</div>
+    <div class="cell desktop-metric">${fmtUsd(t.liquidity)}</div>
+    <div class="cell desktop-metric">${fmtUsd(t.volume)}</div>
+    <div class="cell desktop-metric"><span class="up">${buys}</span>/<span class="down">${sells}</span></div>
+    <div class="row-right">
+      ${sparkSVG(t.sparkline, up)}
+      <div class="badges cell">
+        <span class="badge ${risk}">${score}%</span>
+        ${t.safety?.paid ? '<span class="badge paid">PAID</span>' : '<span class="badge">UNPAID</span>'}
+      </div>
+      <button type="button" class="btn buy" data-buy="${escapeAttr(t.mint)}">Buy ${state.buyPreset}</button>
+    </div>
+  </article>`;
 }
 
-async function refreshTrending() {
-  try {
-    const j = await api('/api/trending?limit=20&refresh=1');
-    renderTokenRows($('#token-list'), j.tokens || []);
-  } catch {
-    const el = $('#token-list');
-    if (el) el.innerHTML = `<p class="muted center">Trending unavailable</p>`;
+function renderList(el, tokens) {
+  if (!tokens.length) {
+    el.innerHTML = `<div class="empty">No tokens for this tab right now.<br/>Try refresh or another timeframe.</div>`;
+    return;
   }
+  el.innerHTML = tokens.map(rowHTML).join('');
 }
 
-async function refreshPulse() {
+async function loadTerminal() {
+  const list = $('#token-list');
+  const pulse = $('#pulse-list');
+  state.loading = true;
+  if (list) list.innerHTML = skeletons();
+  if (pulse && state.view === 'pulse') pulse.innerHTML = skeletons();
   try {
-    const j = await api('/api/trending?limit=24&refresh=1');
-    const toks = (j.tokens || []).slice().sort((a, b) => (b.volume24h || 0) - (a.volume24h || 0));
-    renderTokenRows($('#pulse-list'), toks);
-  } catch {
-    const el = $('#pulse-list');
-    if (el) el.innerHTML = `<p class="muted center">Pulse unavailable</p>`;
-  }
-}
-
-async function openToken(mint) {
-  if (!mint) return;
-  state.selectedMint = mint;
-  history.replaceState(null, '', `/trade/${mint}${state.ref ? `?ref=${encodeURIComponent(state.ref)}` : ''}`);
-  showView('token', { push: true });
-  const st = $('#trade-status');
-  if (st) st.textContent = 'Loading…';
-  try {
-    const j = await api(`/api/token/${encodeURIComponent(mint)}`);
-    if (!j.ok) throw new Error(j.error || 'failed');
-    state.token = j;
-    showView('token', { push: false, title: j.symbol });
-    $('#token-header').innerHTML = `
-      <div class="sym">$${escapeHtml(j.symbol)} · ${escapeHtml(j.name)}</div>
-      <div class="ca">${escapeHtml(j.mint)}</div>
-      <div class="muted" style="margin-top:4px">Safety: ${escapeHtml(j.safetyLevel)} · ${escapeHtml(j.dexId || 'Solana')}</div>`;
-    $('#token-metrics').innerHTML = `
-      <div class="metric-card"><span>Price</span><strong>${fmtUsd(j.priceUsd, 8)}</strong></div>
-      <div class="metric-card"><span>Mkt Cap</span><strong>${fmtUsd(j.marketCap)}</strong></div>
-      <div class="metric-card"><span>Liquidity</span><strong>${fmtUsd(j.liquidity)}</strong></div>
-      <div class="metric-card"><span>24h</span><strong>${fmtPct(j.change24h)}</strong></div>
-      <div class="metric-card"><span>Volume</span><strong>${fmtUsd(j.volume24h)}</strong></div>
-      <div class="metric-card"><span>Mode</span><strong>${state.paper ? 'PAPER' : 'LIVE'}</strong></div>`;
-    const frame = $('#chart-frame');
-    if (frame) {
-      frame.src = `https://dexscreener.com/solana/${mint}?embed=1&theme=dark&trades=0&info=0`;
+    let url = `/api/terminal?tab=${encodeURIComponent(state.tab)}&tf=${state.tf}&limit=20`;
+    if (state.tab === 'watching') url = `/api/terminal?tab=trending&limit=30`;
+    const res = await fetch(url);
+    const data = await res.json();
+    let tokens = data.tokens || [];
+    if (state.tab === 'watching') {
+      tokens = tokens.filter((t) => state.watching.includes(t.mint));
     }
-    if (st) st.textContent = '';
-  } catch (e) {
-    $('#token-header').innerHTML = `<p class="muted">Could not load token</p>`;
-    if (st) st.textContent = e.message || 'failed';
+    if (state.tab === 'viewed') {
+      const viewed = JSON.parse(localStorage.getItem('viewed') || '[]');
+      tokens = tokens.sort(
+        (a, b) => viewed.indexOf(b.mint) - viewed.indexOf(a.mint)
+      );
+    }
+    state.tokens = tokens;
+    if (list) renderList(list, tokens);
+    if (pulse) renderList(pulse, tokens);
+  } catch {
+    if (list) list.innerHTML = `<div class="empty">Feed unavailable. Check connection.</div>`;
+  } finally {
+    state.loading = false;
   }
 }
 
-async function refreshPortfolio() {
+async function loadSol() {
   try {
-    const j = await api('/api/portfolio');
-    if (!j.ok) return;
-    state.paper = j.paper;
-    const sol = j.balanceSol ?? 0;
-    $('#pf-sol').textContent = `${sol.toFixed(4)} SOL`;
-    $('#pf-value').textContent = fmtUsd(sol * (state._solUsd || 0));
-    $('#pf-r').textContent = `${(j.realizedPnl ?? 0) >= 0 ? '+' : ''}${(j.realizedPnl ?? 0).toFixed(4)} SOL`;
-    $('#pf-open').textContent = String(j.openPositions ?? 0);
-    $('#pf-addr').textContent = j.address || 'No wallet — create or import';
-    const tp = $('#btn-toggle-paper');
-    if (tp) tp.textContent = state.paper ? 'Paper ON' : 'Live ON';
-    const pos = await api('/api/positions');
-    const el = $('#positions-list');
-    if (!pos.positions?.length) {
-      el.innerHTML = `<p class="muted center">No open positions</p>`;
+    const res = await fetch('/api/sol-price');
+    const d = await res.json();
+    if (d.ok) {
+      const sign = (d.change24h ?? 0) >= 0 ? '▲' : '▼';
+      const cls = (d.change24h ?? 0) >= 0 ? 'up' : 'down';
+      $('#sol-price').innerHTML = `◎ SOL $${Number(d.priceUsd).toFixed(2)} <span class="${cls}">${sign}${Math.abs(d.change24h || 0).toFixed(2)}%</span>`;
+    }
+  } catch {
+    /* */
+  }
+}
+
+function getProvider(name) {
+  if (name === 'phantom') return window.solana?.isPhantom ? window.solana : window.phantom?.solana;
+  if (name === 'solflare') return window.solflare;
+  if (name === 'backpack') return window.backpack;
+  return null;
+}
+
+async function connectWallet(name) {
+  const provider = getProvider(name);
+  if (!provider) {
+    const urls = {
+      phantom: 'https://phantom.app/',
+      solflare: 'https://solflare.com/',
+      backpack: 'https://backpack.app/',
+    };
+    window.open(urls[name] || '#', '_blank');
+    return;
+  }
+  try {
+    const resp = await provider.connect();
+    const pk =
+      resp?.publicKey?.toString?.() ||
+      provider.publicKey?.toString?.() ||
+      '';
+    state.wallet = { name, publicKey: pk };
+    localStorage.setItem('walletName', name);
+    updateWalletUI();
+    $('#wallet-menu').classList.add('hidden');
+  } catch (e) {
+    console.warn('connect failed', e);
+  }
+}
+
+async function disconnectWallet() {
+  try {
+    const name = state.wallet?.name;
+    const p = name && getProvider(name);
+    if (p?.disconnect) await p.disconnect();
+  } catch {
+    /* */
+  }
+  state.wallet = null;
+  updateWalletUI();
+}
+
+function updateWalletUI() {
+  const btn = $('#btn-connect');
+  if (state.wallet?.publicKey) {
+    btn.textContent = shortAddr(state.wallet.publicKey);
+    btn.classList.add('connected');
+    $('#pf-addr').textContent = state.wallet.publicKey;
+    $('#pf-sol').textContent = 'Connected';
+  } else {
+    btn.textContent = 'Connect';
+    btn.classList.remove('connected');
+    $('#pf-addr').textContent = '—';
+    $('#pf-sol').textContent = '—';
+  }
+}
+
+async function tryReconnect() {
+  const name = localStorage.getItem('walletName');
+  if (!name) return;
+  const p = getProvider(name);
+  if (p?.publicKey) {
+    state.wallet = { name, publicKey: p.publicKey.toString() };
+    updateWalletUI();
+  }
+}
+
+function openSheet(t) {
+  const viewed = JSON.parse(localStorage.getItem('viewed') || '[]');
+  if (!viewed.includes(t.mint)) {
+    viewed.unshift(t.mint);
+    localStorage.setItem('viewed', JSON.stringify(viewed.slice(0, 40)));
+  }
+  const up = (t.changePct ?? 0) >= 0;
+  $('#sheet-body').innerHTML = `
+    <div class="main" style="margin-bottom:16px">
+      ${logoHTML(t)}
+      <div>
+        <div class="token-title"><span class="sym">$${escapeHtml(t.symbol)}</span></div>
+        <div class="muted sm">${escapeHtml(t.name)}</div>
+        <div class="muted sm"><code>${escapeHtml(t.mint)}</code></div>
+      </div>
+    </div>
+    ${sparkSVG(t.sparkline, up)}
+    <div class="pf-grid">
+      <div><span class="muted">Price</span><strong>${t.priceUsd != null ? '$' + Number(t.priceUsd).toPrecision(4) : '—'}</strong></div>
+      <div><span class="muted">MC</span><strong>${fmtUsd(t.marketCap)}</strong></div>
+      <div><span class="muted">Liq</span><strong>${fmtUsd(t.liquidity)}</strong></div>
+      <div><span class="muted">Vol</span><strong>${fmtUsd(t.volume)}</strong></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button type="button" class="btn primary grow" data-buy="${escapeAttr(t.mint)}">Buy ${state.buyPreset} SOL</button>
+      <a class="btn ghost" href="${escapeAttr(t.url)}" target="_blank" rel="noopener">Open</a>
+    </div>
+  `;
+  $('#sheet').classList.remove('hidden');
+}
+function closeSheet() {
+  $('#sheet').classList.add('hidden');
+}
+
+function bind() {
+  $$('.main-tab').forEach((b) =>
+    b.addEventListener('click', () => {
+      $$('.main-tab').forEach((x) => x.classList.remove('active'));
+      b.classList.add('active');
+      state.view = b.dataset.view;
+      $$('.view').forEach((v) => v.classList.remove('active'));
+      $(`#view-${state.view}`)?.classList.add('active');
+      if (state.view === 'discover' || state.view === 'pulse') loadTerminal();
+    })
+  );
+
+  $('#feed-tabs')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]');
+    if (!b) return;
+    $$('#feed-tabs .seg-btn').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    state.tab = b.dataset.tab;
+    loadTerminal();
+  });
+
+  $('#tf-tabs')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tf]');
+    if (!b) return;
+    $$('#tf-tabs .seg-btn').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    state.tf = b.dataset.tf;
+    loadTerminal();
+  });
+
+  $('#btn-refresh')?.addEventListener('click', () => loadTerminal());
+  $('#btn-refresh-pulse')?.addEventListener('click', () => loadTerminal());
+
+  $('#btn-connect')?.addEventListener('click', () => {
+    if (state.wallet) {
+      disconnectWallet();
       return;
     }
-    el.innerHTML = pos.positions
-      .map(
-        (p) => `<button type="button" class="token-row" data-mint="${p.mint}">
-        <div class="tok-ico">${escapeHtml((p.symbol || '?').slice(0, 2))}</div>
-        <div><div class="tok-name">$${escapeHtml(p.symbol)}</div>
-        <div class="tok-meta">${p.mode}</div></div>
-        <div class="tok-chg ${p.unrealizedPnl >= 0 ? 'up' : 'down'}">${p.unrealizedPnl >= 0 ? '+' : ''}${Number(p.unrealizedPnl).toFixed(4)}</div>
-        <div class="tok-mc">${fmtUsd(p.currentPrice, 6)}</div>
-      </button>`
-      )
-      .join('');
-    el.querySelectorAll('.token-row').forEach((b) =>
-      b.addEventListener('click', () => openToken(b.dataset.mint))
-    );
-  } catch {}
-}
-
-async function runTrade(side) {
-  if (state.busy || !state.selectedMint) return;
-  const mode = state.paper ? 'PAPER' : 'LIVE';
-  if (!confirm(side === 'BUY' ? `Confirm ${mode} BUY ${state.buySol} SOL?` : `Confirm ${mode} SELL 100%?`)) return;
-  state.busy = true;
-  const st = $('#trade-status');
-  if (st) st.textContent = 'SUBMITTING…';
-  try {
-    const j = await api('/api/trade', {
-      method: 'POST',
-      body: JSON.stringify({
-        mint: state.selectedMint,
-        side,
-        confirm: true,
-        amountSol: side === 'BUY' ? state.buySol : undefined,
-        percentage: side === 'SELL' ? 100 : undefined,
-      }),
-    });
-    if (j.ok && j.state === 'CONFIRMED') {
-      st.textContent = `CONFIRMED ${j.mode}${j.signature ? ' · ' + String(j.signature).slice(0, 12) + '…' : ''}`;
-      refreshPortfolio();
-    } else st.textContent = j.error || j.state || 'FAILED';
-  } catch (e) {
-    st.textContent = e.message || 'error';
-  } finally {
-    state.busy = false;
-  }
-}
-
-function bindUi() {
-  $('#btn-back')?.addEventListener('click', goBack);
-  $$('.nav-item').forEach((b) =>
-    b.addEventListener('click', () => {
-      state.history = [];
-      showView(b.dataset.view, { push: false });
-      history.replaceState(null, '', '/');
-    })
-  );
-  $$('.amt').forEach((b) =>
-    b.addEventListener('click', () => {
-      $$('.amt').forEach((x) => x.classList.remove('active'));
-      b.classList.add('active');
-      state.buySol = Number(b.dataset.sol);
-      const c = $('#custom-sol');
-      if (c) c.value = String(state.buySol);
-    })
-  );
-  $('#custom-sol')?.addEventListener('change', (e) => {
-    const v = Number(e.target.value);
-    if (v > 0) state.buySol = v;
+    $('#wallet-menu').classList.toggle('hidden');
   });
-  $('#btn-buy')?.addEventListener('click', () => runTrade('BUY'));
-  $('#btn-sell')?.addEventListener('click', () => runTrade('SELL'));
-  $('#btn-refresh-token')?.addEventListener('click', () => {
-    if (state.selectedMint) openToken(state.selectedMint);
+  $('#wallet-menu')?.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-wallet]');
+    if (b) connectWallet(b.dataset.wallet);
   });
-  $('#btn-share')?.addEventListener('click', async () => {
-    if (!state.selectedMint) return;
-    const base = state.config.appUrl || location.origin;
-    const url = `${base}/trade/${state.selectedMint}?ref=${encodeURIComponent(state.ref || 'guest')}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      $('#trade-status').textContent = 'Share link copied';
-    } catch {
-      prompt('Share', url);
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.topbar-right')) {
+      $('#wallet-menu')?.classList.add('hidden');
+    }
+    const row = e.target.closest('.token-row');
+    if (row && !e.target.closest('[data-buy]')) {
+      const t = state.tokens.find((x) => x.mint === row.dataset.mint);
+      if (t) openSheet(t);
+    }
+    if (e.target.matches('[data-close]') || e.target.closest('[data-close]')) {
+      closeSheet();
+    }
+    const buy = e.target.closest('[data-buy]');
+    if (buy) {
+      e.stopPropagation();
+      const mint = buy.dataset.buy;
+      if (!state.wallet) {
+        $('#wallet-menu').classList.remove('hidden');
+        return;
+      }
+      const t = state.tokens.find((x) => x.mint === mint);
+      if (t) openSheet(t);
     }
   });
-  $('#btn-create-wallet')?.addEventListener('click', async () => {
-    const j = await api('/api/wallet/create', { method: 'POST', body: '{}' });
-    alert(j.ok ? `Wallet: ${j.publicKey}` : j.error || 'failed');
-    refreshPortfolio();
-  });
-  $('#btn-import-wallet')?.addEventListener('click', async () => {
-    const secret = prompt('Paste base58 private key (server-side only)');
-    if (!secret) return;
-    const j = await api('/api/wallet/import', {
-      method: 'POST',
-      body: JSON.stringify({ secret }),
-    });
-    alert(j.ok ? `Imported: ${j.publicKey}` : j.error || 'failed');
-    refreshPortfolio();
-  });
-  $('#btn-toggle-paper')?.addEventListener('click', async () => {
-    await api('/api/settings', {
-      method: 'POST',
-      body: JSON.stringify({ paper: !state.paper }),
-    });
-    state.paper = !state.paper;
-    refreshPortfolio();
-  });
-  $('#btn-deposit')?.addEventListener('click', () => showView('portfolio', { push: true }));
-  $('#btn-save-set')?.addEventListener('click', async () => {
-    const buy = Number($('#set-buy').value);
-    if (buy > 0) {
-      state.buySol = buy;
-      await api('/api/settings', { method: 'POST', body: JSON.stringify({ buySize: buy }) });
-    }
-    alert('Saved');
-  });
-  $('#btn-copy-ref')?.addEventListener('click', async () => {
-    const id = localStorage.getItem('solclaw_uid') || crypto.randomUUID().slice(0, 8);
-    localStorage.setItem('solclaw_uid', id);
-    const url = `${state.config.appUrl || location.origin}/?ref=${id}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      alert('Referral link copied');
-    } catch {
-      prompt('Ref', url);
-    }
-  });
-  $('#btn-add-track')?.addEventListener('click', () => {
-    const v = $('#track-input').value.trim();
-    if (!v) return;
-    const key = 'solclaw_tracks';
-    const arr = JSON.parse(localStorage.getItem(key) || '[]');
-    if (!arr.includes(v)) arr.push(v);
-    localStorage.setItem(key, JSON.stringify(arr));
-    renderTracks();
+
+  $('#buy-preset')?.addEventListener('change', (e) => {
+    state.buyPreset = Number(e.target.value);
+    localStorage.setItem('buyPreset', String(state.buyPreset));
+    loadTerminal();
   });
 }
 
-function renderTracks() {
-  const arr = JSON.parse(localStorage.getItem('solclaw_tracks') || '[]');
-  const el = $('#track-list');
-  if (!el) return;
-  if (!arr.length) {
-    el.innerHTML = `<p class="muted center">No wallets tracked yet</p>`;
-    return;
-  }
-  el.innerHTML = arr
-    .map(
-      (a) => `<div class="token-row"><div class="tok-ico">◎</div>
-      <div><div class="tok-name">Tracked</div><div class="tok-meta">${escapeHtml(a)}</div></div></div>`
-    )
-    .join('');
-}
-
-function captureRoute() {
-  const u = new URL(location.href);
-  const ref = u.searchParams.get('ref');
-  if (ref) state.ref = ref;
-  const parts = u.pathname.split('/').filter(Boolean);
-  if (parts[0] === 'trade' && parts[1]) openToken(parts[1]);
-}
-
-async function boot() {
-  bindUi();
-  captureRoute();
-  try {
-    const c = await api('/api/config');
-    if (c.ok) state.config = c;
-  } catch {}
-  await ensureSession();
-  await refreshSolPrice();
-  try {
-    const sp = await api('/api/sol-price');
-    if (sp.ok) state._solUsd = sp.priceUsd;
-  } catch {}
-  if (state.view === 'discover') await refreshTrending();
-  renderTracks();
-  setInterval(refreshSolPrice, 15000);
-  setInterval(() => {
-    if (state.view === 'discover') refreshTrending();
-    if (state.view === 'pulse') refreshPulse();
-  }, 10000);
-}
-
-boot();
+bind();
+tryReconnect();
+loadSol();
+loadTerminal();
+setInterval(loadSol, 15_000);
+setInterval(() => {
+  if (state.view === 'discover' || state.view === 'pulse') loadTerminal();
+}, 45_000);
