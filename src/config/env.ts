@@ -61,6 +61,21 @@ export const env = {
   get BOT_USERNAME() {
     return optional('BOT_USERNAME', '');
   },
+  get HELIUS_API_KEY() {
+    return optional('HELIUS_API_KEY', '');
+  },
+  get JITO_ENABLED() {
+    return optional('JITO_ENABLED', '1');
+  },
+  get JITO_TIP_SOL() {
+    return optional('JITO_TIP_SOL', '0.0001');
+  },
+  get JITO_UUID() {
+    return optional('JITO_UUID', '');
+  },
+  get X_BEARER_TOKEN() {
+    return optional('X_BEARER_TOKEN', '');
+  },
 };
 
 export function validateEnvForTrading(): void {
