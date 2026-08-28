@@ -1,6 +1,5 @@
 /**
  * Live pump.fun coin scraper + Solana DEX fallback.
- * Priority: pump.fun (v3 API) → DexScreener Solana volume.
  */
 
 export type TrendingToken = {
@@ -15,6 +14,7 @@ export type TrendingToken = {
   source: 'pump' | 'dex';
   url: string;
   createdAt?: number | null;
+  image?: string | null;
 };
 
 const CACHE_MS = 20_000;
@@ -50,6 +50,7 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
     num(c.volume) ??
     num(c.virtual_sol_reserves) ??
     null;
+  const img = String(c.image_uri ?? c.image ?? '');
   return {
     mint,
     name: String(c.name ?? 'Unknown').slice(0, 28),
@@ -62,6 +63,7 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
     source: 'pump',
     url: `https://pump.fun/${mint}`,
     createdAt: num(c.created_timestamp) ?? num(c.createdAt),
+    image: img.startsWith('http') ? img : null,
   };
 }
 
