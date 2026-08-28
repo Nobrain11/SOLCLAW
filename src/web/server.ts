@@ -126,6 +126,6 @@ app.get(['/', '/trade/:mint', '/rewards'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`SOL CLAW web terminal → http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`[solclaw] web terminal listening on 0.0.0.0:${PORT}`);
 });

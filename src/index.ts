@@ -1,7 +1,8 @@
 /**
  * SOL CLAW bootstrap
- * - Always starts the live WEB terminal on process.env.PORT (Railway)
- * - Starts Telegram bot only when BOT_TOKEN is set
+ * Web always on PORT (0.0.0.0)
+ * Telegram only when TELEGRAM_ENABLED=1 and BOT_TOKEN set
+ * (avoids 409 Conflict when multiple instances poll the same bot)
  */
 
 import { validateEnvForTrading } from './config/env.js';
@@ -17,9 +18,13 @@ async function main(): Promise<void> {
   }
 
   const token = process.env.BOT_TOKEN;
-  if (!token) {
+  const tgOn =
+    process.env.TELEGRAM_ENABLED === '1' ||
+    process.env.TELEGRAM_ENABLED === 'true';
+
+  if (!token || !tgOn) {
     console.warn(
-      '[solclaw] BOT_TOKEN not set — web terminal only (Telegram disabled)'
+      '[solclaw] Telegram polling off (set TELEGRAM_ENABLED=1 and BOT_TOKEN to enable)'
     );
     return;
   }
@@ -34,6 +39,10 @@ async function main(): Promise<void> {
 
     const bot = new TelegramBot(token, { polling: true });
     setAdminBot(bot);
+
+    bot.on('polling_error', (err) => {
+      console.error('[solclaw] polling_error', err.message);
+    });
 
     bot.onText(/\/start/, (msg) => {
       handleStart(bot, msg).catch((err) => console.error('start', err));
@@ -50,9 +59,9 @@ async function main(): Promise<void> {
     });
 
     startTpslMonitor(bot);
-    console.log('SOL CLAW Telegram bot running (TP/SL monitor active)');
+    console.log('[solclaw] Telegram bot polling active');
   } catch (e) {
-    console.error('[solclaw] Telegram bot failed (web still up)', e);
+    console.error('[solclaw] Telegram failed (web still up)', e);
   }
 }
 
