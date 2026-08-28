@@ -147,6 +147,8 @@
           <button type="button" id="btn-create-wallet" class="btn primary">Create wallet</button>
           <button type="button" id="btn-import-wallet" class="btn ghost">Import</button>
         </div>
+        <h3 class="h2" style="margin-top:20px">Positions</h3>
+        <div id="positions-list"><p class="muted center">No open positions</p></div>
       </div>
     </section>
 
@@ -169,6 +171,7 @@
             <option value="20" selected>20%</option>
           </select>
         </label>
+        <button type="button" id="btn-toggle-paper" class="btn ghost" style="margin-top:8px">Paper ON</button>
       </div>
     </section>
 
@@ -182,5 +185,6 @@
   </div>
   <script src="/app.js" type="module"></script>
   <script src="/hunter-ui.js" type="module"></script>
+  <script src="/trade-ui.js" type="module"></script>
 </body>
 </html>
