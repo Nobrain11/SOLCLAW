@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>SOL CLAW — Live Terminal</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand"><span class="logo">🐾</span><span class="name">SOL CLAW</span></div>
+      <div id="sol-price" class="sol-price">◎ SOL —</div>
+      <nav class="nav">
+        <button type="button" data-view="terminal" class="nav-btn active">Terminal</button>
+        <button type="button" data-view="positions" class="nav-btn">Positions</button>
+        <button type="button" data-view="wallet" class="nav-btn">Wallet</button>
+        <button type="button" data-view="rewards" class="nav-btn">Rewards</button>
+      </nav>
+    </header>
+    <main>
+      <section id="view-terminal" class="view active">
+        <div class="grid">
+          <aside class="panel portfolio-panel">
+            <h2>Portfolio</h2>
+            <div class="metric"><span class="label">Balance</span><span id="portfolio-sol" class="value">0.00 SOL</span></div>
+            <div class="metric"><span class="label">Open</span><span id="open-count" class="value">0</span></div>
+            <div class="metric"><span class="label">PnL</span><span id="pnl-total" class="value pnl">+0.00 SOL</span></div>
+            <div class="wallet-status" id="wallet-status">
+              <p class="muted">No wallet connected</p>
+              <button type="button" id="btn-connect" class="btn primary">Connect / Create Wallet</button>
+            </div>
+          </aside>
+          <section class="panel trade-panel">
+            <h2>⚡ Manual Trade</h2>
+            <label class="field"><span>Token CA</span>
+              <input id="mint-input" type="text" placeholder="Paste Solana token address" autocomplete="off" spellcheck="false" />
+            </label>
+            <div class="row">
+              <button type="button" id="btn-scan" class="btn primary">Scan</button>
+              <button type="button" id="btn-clear" class="btn ghost">Clear</button>
+            </div>
+            <div id="token-card" class="token-card hidden"></div>
+            <div id="trade-controls" class="trade-controls hidden">
+              <div class="amounts">
+                <button type="button" class="amt" data-sol="0.01">◎ 0.01</button>
+                <button type="button" class="amt" data-sol="0.05">◎ 0.05</button>
+                <button type="button" class="amt" data-sol="0.10">◎ 0.10</button>
+                <button type="button" class="amt" data-sol="0.25">◎ 0.25</button>
+              </div>
+              <label class="field"><span>Custom SOL</span>
+                <input id="custom-sol" type="number" min="0" step="0.01" placeholder="0.05" />
+              </label>
+              <div class="row">
+                <button type="button" id="btn-buy" class="btn buy">🟢 BUY</button>
+                <button type="button" id="btn-sell" class="btn sell">🔴 SELL</button>
+              </div>
+              <div class="row secondary-actions">
+                <button type="button" class="btn ghost" id="btn-share">🤑 Share Token</button>
+                <button type="button" class="btn ghost" id="btn-refresh-token">🔄 Refresh</button>
+              </div>
+              <p id="trade-status" class="status muted"></p>
+            </div>
+          </section>
+          <section class="panel trending-panel">
+            <div class="panel-head"><h2>🔥 Trending</h2><span id="trend-clock" class="muted">live · 10s</span></div>
+            <div id="trending-list" class="trending-list"><p class="muted">Loading live market data…</p></div>
+          </section>
+        </div>
+      </section>
+      <section id="view-positions" class="view"><div class="panel"><h2>📈 Positions</h2><div id="positions-list"><p class="muted">No open positions.</p></div></div></section>
+      <section id="view-wallet" class="view"><div class="panel"><h2>💼 Wallet</h2><p class="muted">Connect wallet to trade from the web terminal. Telegram bot wallets remain available.</p><button type="button" id="btn-wallet-refresh" class="btn primary">Refresh</button></div></section>
+      <section id="view-rewards" class="view"><div class="panel"><h2>🎁 Rewards</h2><p class="muted">Referral is optional — never required at startup.</p><div id="rewards-body"><p>👥 Referrals: 0</p><p>💰 Unclaimed: 0 SOL</p><button type="button" id="btn-copy-ref" class="btn primary">🔗 Copy referral link</button></div></div></section>
+    </main>
+    <footer class="footer"><span>SOL CLAW · Live Solana terminal</span><span id="footer-clock"></span></footer>
+  </div>
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
