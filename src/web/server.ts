@@ -12,6 +12,7 @@ import { scanToken } from '../services/scanner.js';
 import { getMarketData } from '../services/market.js';
 import { isValidPublicKey } from '../services/rpc.js';
 import { registerTradeRoutes } from './api/trade.js';
+import { registerHunterRoutes } from './api/hunter.js';
 import { userCount, getBackend } from '../db/persist.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -25,6 +26,7 @@ app.use(express.json());
 app.use(express.static(publicDir));
 
 registerTradeRoutes(app);
+registerHunterRoutes(app);
 
 app.get('/api/sol-price', async (_req, res) => {
   try {
@@ -70,7 +72,6 @@ app.get('/api/trending', async (req, res) => {
   }
 });
 
-/** Terminal feed — logos, sparklines, full columns */
 app.get('/api/terminal', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 30);
