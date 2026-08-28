@@ -1,8 +1,15 @@
 /**
- * Web session → numeric userId for shared wallet/trading engine.
+ * Web session — cookie sessionId → userId
+ * Persisted so redeploy keeps visitors + settings.
  */
 
 import { randomBytes } from 'node:crypto';
+import {
+  loadWebSession,
+  saveWebSession,
+  registerWebUser,
+  type WebSessionRecord,
+} from '../db/persist.js';
 
 export type WebSession = {
   sessionId: string;
@@ -14,7 +21,7 @@ export type WebSession = {
   lastSeen: number;
 };
 
-const sessions = new Map<string, WebSession>();
+const cache = new Map<string, WebSession>();
 
 function userIdFromSession(sessionId: string): number {
   let h = 0;
@@ -22,6 +29,10 @@ function userIdFromSession(sessionId: string): number {
     h = (Math.imul(31, h) + sessionId.charCodeAt(i)) | 0;
   }
   return 2_000_000_000 + (Math.abs(h) % 900_000_000);
+}
+
+function fromRecord(r: WebSessionRecord): WebSession {
+  return { ...r };
 }
 
 export function createSession(ref?: string): WebSession {
@@ -35,15 +46,23 @@ export function createSession(ref?: string): WebSession {
     createdAt: Date.now(),
     lastSeen: Date.now(),
   };
-  sessions.set(sessionId, s);
+  cache.set(sessionId, s);
+  saveWebSession(s);
+  registerWebUser(sessionId, ref);
   return s;
 }
 
 export function getSession(sessionId: string | undefined): WebSession | null {
   if (!sessionId) return null;
-  const s = sessions.get(sessionId);
-  if (!s) return null;
+  let s = cache.get(sessionId);
+  if (!s) {
+    const saved = loadWebSession(sessionId);
+    if (!saved) return null;
+    s = fromRecord(saved);
+    cache.set(sessionId, s);
+  }
   s.lastSeen = Date.now();
+  saveWebSession(s);
   return s;
 }
 
@@ -53,7 +72,11 @@ export function getOrCreateSession(
 ): WebSession {
   const existing = getSession(sessionId);
   if (existing) {
-    if (ref && !existing.ref) existing.ref = ref.slice(0, 64);
+    if (ref && !existing.ref) {
+      existing.ref = ref.slice(0, 64);
+      saveWebSession(existing);
+    }
+    registerWebUser(existing.sessionId, existing.ref);
     return existing;
   }
   return createSession(ref);
@@ -66,5 +89,6 @@ export function updateWebSession(
   const s = getSession(sessionId);
   if (!s) return null;
   Object.assign(s, patch);
+  saveWebSession(s);
   return s;
 }

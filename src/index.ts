@@ -1,15 +1,19 @@
 /**
  * SOL CLAW bootstrap
- * Web always on PORT (0.0.0.0)
- * Telegram only when TELEGRAM_ENABLED=1 and BOT_TOKEN set
- * (avoids 409 Conflict when multiple instances poll the same bot)
+ * 1) Load persistent user DB (Postgres or /data file)
+ * 2) Start web terminal on 0.0.0.0:PORT
+ * 3) Optional Telegram if TELEGRAM_ENABLED=1
  */
 
 import { validateEnvForTrading } from './config/env.js';
+import { initDb, userCount, getBackend } from './db/persist.js';
 
 validateEnvForTrading();
 
 async function main(): Promise<void> {
+  await initDb();
+  console.log(`[solclaw] users registered: ${userCount()} (backend=${getBackend()})`);
+
   try {
     await import('./web/server.js');
   } catch (e) {
