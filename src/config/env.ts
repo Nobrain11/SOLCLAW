@@ -1,5 +1,5 @@
 /**
- * Environment validation. Soft for web-only deploys.
+ * Environment validation. Fail fast if critical secrets are missing.
  */
 
 function required(name: string): string {
@@ -23,7 +23,16 @@ export const env = {
     return optional('SOLANA_RPC_URL', 'https://api.mainnet-beta.solana.com');
   },
   get WALLET_ENCRYPTION_SECRET() {
-    return optional('WALLET_ENCRYPTION_SECRET', '');
+    const v =
+      process.env.WALLET_ENCRYPTION_SECRET ||
+      process.env.ENCRYPTION_SECRET ||
+      '';
+    if (!v || v.length < 16) {
+      throw new Error(
+        'Set WALLET_ENCRYPTION_SECRET in Railway (min 16 chars, e.g. openssl rand -hex 32)'
+      );
+    }
+    return v;
   },
   get JUPITER_QUOTE_API() {
     return optional('JUPITER_QUOTE_API', 'https://quote-api.jup.ag/v6');
@@ -70,18 +79,17 @@ export const env = {
   get JITO_TIP_SOL() {
     return optional('JITO_TIP_SOL', '0.0001');
   },
-  get JITO_UUID() {
-    return optional('JITO_UUID', '');
-  },
   get X_BEARER_TOKEN() {
     return optional('X_BEARER_TOKEN', '');
   },
 };
 
 export function validateEnvForTrading(): void {
-  if (!process.env.WALLET_ENCRYPTION_SECRET) {
+  const sec =
+    process.env.WALLET_ENCRYPTION_SECRET || process.env.ENCRYPTION_SECRET || '';
+  if (!sec || sec.length < 16) {
     console.warn(
-      '[config] WALLET_ENCRYPTION_SECRET not set — wallet create/import will fail until set'
+      '[config] Set WALLET_ENCRYPTION_SECRET (min 16 chars) — wallet create/import will fail until set'
     );
   }
 }
