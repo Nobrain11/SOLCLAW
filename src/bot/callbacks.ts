@@ -6,12 +6,12 @@ import type TelegramBot from 'node-telegram-bot-api';
 import { answerCallback, sendOrEdit } from './ui.js';
 import * as screens from './screens.js';
 import { getSession, updateSession, isOnboarded, registerOnStart } from './session.js';
+import { handleHunterCallback } from './hunterUi.js';
 import type { Language } from '../i18n/index.js';
 import { t, isLanguage } from '../i18n/index.js';
 import * as keyboards from './keyboards.js';
 import * as wallet from '../services/wallet.js';
 import { scanToken, formatTokenAnalysisMessage } from '../services/scanner.js';
-import { formatUsd } from '../services/market.js';
 import { executeTrade } from '../services/trading.js';
 import {
   getOpenPositions,
@@ -20,12 +20,10 @@ import {
 } from '../services/positions.js';
 import { getPnlStats, getHistory } from '../services/history.js';
 import { isValidPublicKey } from '../services/rpc.js';
-import { formatStrategyMessage } from '../services/strategies.js';
-import { setAutoEnabled, setAutoStrategy } from '../services/auto.js';
+import { setAutoEnabled } from '../services/auto.js';
 import {
   applyReferral,
   parseStartPayload,
-  hasReferral,
 } from '../services/referral.js';
 import { env } from '../config/env.js';
 import {
@@ -88,9 +86,7 @@ export async function handleStart(
   const chatId = msg.chat.id;
   const uid = msg.from?.id ?? 0;
 
-  // Persist registration every /start so redeploy keeps the user
   registerOnStart(msg);
-
   if (uid) updateSession(chatId, { userId: uid });
 
   const parts = (msg.text ?? '').trim().split(/\s+/);
@@ -140,6 +136,11 @@ export async function handleCallback(
   if (uid) updateSession(chatId, { userId: uid });
   await answerCallback(bot, query);
 
+  // Auto-Hunter routes first
+  if (await handleHunterCallback(bot, chatId, messageId, uid, data)) {
+    return;
+  }
+
   let session = getSession(chatId);
 
   if (data.startsWith('language_')) {
@@ -179,11 +180,6 @@ export async function handleCallback(
   }
   if (data === 'menu_manual') {
     const s = screens.manualEntryScreen(lang);
-    await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
-    return;
-  }
-  if (data === 'menu_auto') {
-    const s = screens.autoTradeScreen(lang, session.autoEnabled);
     await sendOrEdit(bot, chatId, messageId, s.text, s.keyboard);
     return;
   }
@@ -286,7 +282,7 @@ export async function handleCallback(
         bot,
         chatId,
         messageId,
-        '⚠️ Could not load trending feed.',
+        'Could not load pump.fun feed.',
         keyboards.trendingKeyboard(lang)
       );
     }
@@ -304,7 +300,7 @@ export async function handleCallback(
       bot,
       chatId,
       messageId,
-      `✅ Claimed <b>${res.claimedSol.toFixed(4)} SOL</b>`,
+      `Claimed <b>${res.claimedSol.toFixed(4)} SOL</b>`,
       keyboards.rewardsKeyboard(lang)
     );
     return;
@@ -327,10 +323,10 @@ export async function handleCallback(
       }
       const { publicKey } = await wallet.createWallet(uid);
       void admin.notifyWalletCreated(uid, publicKey);
-      await sendOrEdit(bot, chatId, messageId, `✅ Wallet created\n<code>${publicKey}</code>`, keyboards.walletKeyboard(lang));
+      await sendOrEdit(bot, chatId, messageId, `Wallet created\n<code>${publicKey}</code>`, keyboards.walletKeyboard(lang));
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Error';
-      await sendOrEdit(bot, chatId, messageId, `❌ ${msg}`, keyboards.walletKeyboard(lang));
+      await sendOrEdit(bot, chatId, messageId, msg, keyboards.walletKeyboard(lang));
     }
     return;
   }
@@ -373,7 +369,7 @@ export async function handleText(
       try { await bot.deleteMessage(chatId, msg.message_id); } catch { /* */ }
       const { publicKey } = await wallet.importWallet(uid, text);
       void admin.notifyWalletImported(uid, publicKey);
-      await bot.sendMessage(chatId, `✅ Imported\n<code>${publicKey}</code>`, {
+      await bot.sendMessage(chatId, `Imported\n<code>${publicKey}</code>`, {
         parse_mode: 'HTML',
         reply_markup: { inline_keyboard: keyboards.walletKeyboard(lang) },
       });
@@ -392,7 +388,7 @@ export async function handleText(
 
   if (isValidPublicKey(text) && text.length >= 32) {
     updateSession(chatId, { pendingToken: text });
-    await bot.sendMessage(chatId, '🔍 Scanning…');
+    await bot.sendMessage(chatId, 'Scanning…');
     try {
       const analysis = await scanToken(text);
       const body = formatTokenAnalysisMessage(analysis);
