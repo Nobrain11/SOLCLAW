@@ -8,8 +8,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSolPrice, formatSolHeader } from '../services/solPrice.js';
 import { getTrendingTokens } from '../services/trending.js';
-import { scanToken } from '../services/scanner.js';
-import { getMarketData } from '../services/market.js';
 import { isValidPublicKey } from '../services/rpc.js';
 import { registerTradeRoutes } from './api/trade.js';
 import { registerHunterRoutes } from './api/hunter.js';
@@ -120,30 +118,12 @@ app.get('/api/token/:mint', async (req, res) => {
     return;
   }
   try {
-    const [market, analysis] = await Promise.all([
-      getMarketData(mint),
-      scanToken(mint).catch(() => null),
-    ]);
-    res.json({
-      ok: true,
-      mint,
-      name: analysis?.name ?? mint.slice(0, 8),
-      symbol: analysis?.symbol ?? 'TOKEN',
-      priceUsd: market.priceUsd ?? analysis?.price ?? null,
-      marketCap: market.marketCap ?? analysis?.marketCap ?? null,
-      liquidity: market.liquidityUsd ?? analysis?.liquidity ?? null,
-      volume24h: market.volume24h ?? null,
-      change24h: market.priceChange24h ?? analysis?.priceChange24h ?? null,
-      dexId: market.dexId ?? null,
-      safetyLevel: analysis?.safetyLevel ?? 'UNKNOWN',
-      warnings: analysis?.warnings ?? [],
-      available: market.available,
-      updatedAt: Date.now(),
-      sharePath: `/trade/${mint}`,
-    });
+    const { getTokenDetail } = await import('../services/tokenDetail.js');
+    const detail = await getTokenDetail(mint);
+    res.json({ ok: true, ...detail });
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'scan failed';
-    res.status(502).json({ ok: false, error: msg });
+    console.error('[token]', e);
+    res.status(502).json({ ok: false, error: 'token detail unavailable' });
   }
 });
 
