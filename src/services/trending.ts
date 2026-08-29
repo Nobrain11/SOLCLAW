@@ -1,6 +1,6 @@
 /**
  * Live pump.fun coin scraper.
- * Trending = movers on curve. New pairs = newest created.
+ * Movers = activity on curve. New pairs = <60 min, MC <$500k.
  */
 
 export type TrendingToken = {
@@ -19,7 +19,7 @@ export type TrendingToken = {
   progressPct?: number | null;
 };
 
-const CACHE_MS = 15_000;
+const CACHE_MS = 12_000;
 let cache: { at: number; items: TrendingToken[] } | null = null;
 
 const HEADERS: Record<string, string> = {
@@ -124,17 +124,6 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     if (out.length >= Math.min(10, limit)) break;
   }
 
-  for (const base of bases) {
-    const koth = await fetchJson(`${base}/coins/king-of-the-hill?includeNsfw=false`);
-    if (koth && typeof koth === 'object') {
-      const item = mapPumpCoin(koth as Record<string, unknown>);
-      if (item && !seen.has(item.mint)) {
-        seen.add(item.mint);
-        out.unshift(item);
-      }
-    }
-  }
-
   return out;
 }
 
@@ -146,7 +135,6 @@ export async function getTrendingTokens(
     return cache.items.slice(0, limit);
   }
 
-  // Pump.fun only for terminal feeds
   let items = await fetchPumpFun(Math.max(limit, 24));
   items = items.filter((i) => i.source === 'pump');
 
@@ -164,39 +152,77 @@ export async function getTrendingTokens(
   return items;
 }
 
-/** Newest bonding-curve coins (Pulse / New pairs). */
+/** Newest bonding-curve coins — real New pairs only. */
 export async function getNewPumpPairs(
   limit = 20,
-  force = false
+  _force = false
 ): Promise<TrendingToken[]> {
-  const items = await getTrendingTokens(Math.max(limit * 2, 40), force);
-  const pump = items.filter((i) => i.source === 'pump');
-  pump.sort((a, b) => {
-    const ta =
-      a.createdAt != null
-        ? a.createdAt > 1e12
-          ? a.createdAt
-          : a.createdAt * 1000
-        : 0;
-    const tb =
-      b.createdAt != null
-        ? b.createdAt > 1e12
-          ? b.createdAt
-          : b.createdAt * 1000
-        : 0;
+  const bases = [
+    'https://frontend-api-v3.pump.fun',
+    'https://frontend-api.pump.fun',
+  ];
+  const seen = new Set<string>();
+  const raw: TrendingToken[] = [];
+
+  for (const base of bases) {
+    const url =
+      `${base}/coins?offset=0&limit=50&sort=created_timestamp&order=DESC&includeNsfw=false`;
+    const data = await fetchJson(url);
+    if (!Array.isArray(data)) continue;
+    for (const c of data) {
+      const item = mapPumpCoin(c as Record<string, unknown>);
+      if (!item || seen.has(item.mint)) continue;
+      seen.add(item.mint);
+      raw.push(item);
+    }
+    if (raw.length >= 25) break;
+  }
+
+  const now = Date.now();
+  const MAX_AGE_MS = 60 * 60 * 1000; // 60 minutes
+  const MAX_MC = 500_000; // not $860M
+
+  const filtered = raw.filter((t) => {
+    if (t.source !== 'pump') return false;
+    if (t.createdAt == null) return false;
+    const ms = t.createdAt > 1e12 ? t.createdAt : t.createdAt * 1000;
+    const age = now - ms;
+    if (age < 0 || age > MAX_AGE_MS) return false;
+    if (t.marketCap != null && t.marketCap > MAX_MC) return false;
+    if (t.progressPct != null && t.progressPct >= 100) return false;
+    return true;
+  });
+
+  filtered.sort((a, b) => {
+    const ta = a.createdAt! > 1e12 ? a.createdAt! : a.createdAt! * 1000;
+    const tb = b.createdAt! > 1e12 ? b.createdAt! : b.createdAt! * 1000;
     return tb - ta;
   });
-  return pump.slice(0, limit);
+
+  const bySym = new Set<string>();
+  const out: TrendingToken[] = [];
+  for (const t of filtered) {
+    const key = t.symbol.toUpperCase();
+    if (bySym.has(key)) continue;
+    bySym.add(key);
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
-/** Pump.fun movers — volume / activity on curve. */
+/** Pump.fun movers — volume / activity (not mega-cap junk). */
 export async function getPumpMovers(
   limit = 20,
   force = false
 ): Promise<TrendingToken[]> {
-  const items = await getTrendingTokens(Math.max(limit * 2, 40), force);
+  const items = await getTrendingTokens(Math.max(limit * 3, 40), force);
   const pump = items.filter((i) => i.source === 'pump');
-  pump.sort((a, b) => {
+  const clean = pump.filter((t) => {
+    if (t.marketCap != null && t.marketCap > 50_000_000) return false;
+    return true;
+  });
+  clean.sort((a, b) => {
     const score = (x: TrendingToken) =>
       (x.volume24h ?? 0) * 2 +
       (x.marketCap ?? 0) * 0.05 +
@@ -204,15 +230,20 @@ export async function getPumpMovers(
       (x.progressPct ?? 0) * 10;
     return score(b) - score(a);
   });
-  return pump.slice(0, limit);
+  const seen = new Set<string>();
+  const out: TrendingToken[] = [];
+  for (const t of clean) {
+    if (seen.has(t.mint)) continue;
+    seen.add(t.mint);
+    out.push(t);
+    if (out.length >= limit) break;
+  }
+  return out;
 }
 
 export function formatTrendingMessage(items: TrendingToken[]): string {
   if (!items.length) {
-    return (
-      `🔥 <b>PUMP.FUN MOVERS</b>\n\n` +
-      `No coins right now. Tap refresh.`
-    );
+    return `🔥 <b>PUMP.FUN MOVERS</b>\n\nNo coins right now. Tap refresh.`;
   }
   const lines = items.slice(0, 12).map((t, i) => {
     const mc =
