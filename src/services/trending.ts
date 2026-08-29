@@ -45,12 +45,16 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
   const price =
     num(c.price_usd) ?? num(c.usd_price) ?? num(c.priceUsd) ?? null;
   const vol =
-    num(c.volume_24h) ??
-    num(c.volume24h) ??
-    num(c.volume) ??
-    num(c.virtual_sol_reserves) ??
-    null;
+    num(c.volume_24h) ?? num(c.volume24h) ?? num(c.volume) ?? null;
   const img = String(c.image_uri ?? c.image ?? '');
+  // virtual_sol_reserves is SOL on the curve — NOT USD. Never pass it as liquidity USD.
+  const liq =
+    num(c.virtual_usd_reserves) ??
+    num(c.liquidity_usd) ??
+    num(c.liquidityUsd) ??
+    (typeof c.liquidity === 'number' && (c.liquidity as number) > 500
+      ? num(c.liquidity)
+      : null);
   return {
     mint,
     name: String(c.name ?? 'Unknown').slice(0, 28),
@@ -59,7 +63,7 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
     marketCap: mc,
     volume24h: vol,
     change24h: num(c.price_change_24h) ?? num(c.priceChange24h),
-    liquidity: num(c.virtual_sol_reserves) ?? num(c.liquidity) ?? null,
+    liquidity: liq,
     source: 'pump',
     url: `https://pump.fun/${mint}`,
     createdAt: num(c.created_timestamp) ?? num(c.createdAt),
@@ -89,7 +93,6 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     'last_trade_timestamp',
     'created_timestamp',
     'market_cap',
-    'virtual_sol_reserves',
   ];
 
   const seen = new Set<string>();
@@ -189,6 +192,11 @@ async function fetchDexScreenerSolana(limit = 20): Promise<TrendingToken[]> {
       liquidity: num((sol.liquidity as Record<string, unknown> | undefined)?.usd),
       source: 'dex',
       url: String(sol.url ?? `https://dexscreener.com/solana/${mint}`),
+      image: (() => {
+        const info = sol.info as Record<string, unknown> | undefined;
+        const u = String(info?.imageUrl ?? '');
+        return u.startsWith('http') ? u : null;
+      })(),
     });
     if (items.length >= limit) break;
   }
