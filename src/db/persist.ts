@@ -1,6 +1,6 @@
 /**
  * Persistent store so users survive Railway redeploys.
- * 1) DATABASE_URL (Postgres)  2) DATA_DIR/solclaw.json  3) memory (warn)
+ * 1) DATABASE_URL (Postgres)  2) DATA_DIR/solclaw.json volume  3) memory (CRITICAL)
  */
 
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -147,7 +147,7 @@ export async function initDb(): Promise<void> {
       }
       backend = 'postgres';
       console.log(
-        `[db] Postgres ON (${Object.keys(db.users).length} users)`
+        `[db] Postgres ON (${Object.keys(db.users).length} users, ${Object.keys(db.wallets).length} wallets)`
       );
       return;
     } catch (e) {
@@ -164,7 +164,7 @@ export async function initDb(): Promise<void> {
       db = { ...emptyDb(), ...JSON.parse(raw) };
       backend = 'file';
       console.log(
-        `[db] File ON → ${path} (${Object.keys(db.users).length} users)`
+        `[db] File ON → ${path} (${Object.keys(db.users).length} users, ${Object.keys(db.wallets).length} wallets)`
       );
       return;
     }
@@ -174,7 +174,7 @@ export async function initDb(): Promise<void> {
   } catch (e) {
     backend = 'memory';
     console.warn(
-      '[db] MEMORY ONLY — set DATABASE_URL or mount volume at /data',
+      '[db] CRITICAL: MEMORY ONLY — wallets LOST on redeploy. Set DATABASE_URL (Postgres) or mount Railway Volume at /data.',
       e
     );
   }
@@ -197,6 +197,12 @@ async function flush(): Promise<void> {
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, JSON.stringify(db, null, 0));
   }
+}
+
+/** Force immediate write — used after wallet create/import */
+export async function forceFlush(): Promise<void> {
+  dirty = true;
+  await flush();
 }
 
 export function getBackend(): string {
@@ -314,14 +320,17 @@ export function loadWallet(userId: number): WalletRecord | null {
   return db.wallets[String(userId)] ?? null;
 }
 
+/** Always flush wallets immediately — never debounce funds. */
 export function saveWallet(w: WalletRecord): void {
   db.wallets[String(w.userId)] = w;
-  scheduleSave();
+  dirty = true;
+  void forceFlush().catch((e) => console.error('[db] wallet flush failed', e));
 }
 
 export function deleteWallet(userId: number): void {
   delete db.wallets[String(userId)];
-  scheduleSave();
+  dirty = true;
+  void forceFlush().catch((e) => console.error('[db] wallet delete flush failed', e));
 }
 
 export function allWallets(): WalletRecord[] {
@@ -340,9 +349,4 @@ export function savePosition(p: PositionRecord): void {
 export function deletePosition(id: string): void {
   delete db.positions[id];
   scheduleSave();
-}
-
-export async function forceFlush(): Promise<void> {
-  dirty = true;
-  await flush();
 }
