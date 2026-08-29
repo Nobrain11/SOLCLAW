@@ -7,7 +7,11 @@ import cors from 'cors';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getSolPrice, formatSolHeader } from '../services/solPrice.js';
-import { getTrendingTokens } from '../services/trending.js';
+import {
+  getTrendingTokens,
+  getNewPumpPairs,
+  getPumpMovers,
+} from '../services/trending.js';
 import { isValidPublicKey } from '../services/rpc.js';
 import { registerTradeRoutes } from './api/trade.js';
 import { registerHunterRoutes } from './api/hunter.js';
@@ -26,12 +30,14 @@ app.use(express.static(publicDir));
 registerTradeRoutes(app);
 registerHunterRoutes(app);
 
+/** Live SOL/USD price */
 app.get('/api/sol-price', async (_req, res) => {
   try {
     const snap = await getSolPrice();
     res.json({
       ok: true,
       priceUsd: snap.priceUsd,
+      price: snap.priceUsd,
       change24h: snap.change24h,
       header: formatSolHeader(snap),
       updatedAt: snap.updatedAt,
@@ -41,11 +47,12 @@ app.get('/api/sol-price', async (_req, res) => {
   }
 });
 
+/** Trending = pump.fun movers */
 app.get('/api/trending', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 16, 24);
     const force = req.query.refresh === '1';
-    const items = await getTrendingTokens(limit, force);
+    const items = await getPumpMovers(limit, force);
     res.json({
       ok: true,
       count: items.length,
@@ -62,7 +69,9 @@ app.get('/api/trending', async (req, res) => {
         source: t.source,
         url: t.url,
         image: t.image ?? null,
-        dex: t.source === 'pump' ? 'Pump.fun' : 'Solana DEX',
+        createdAt: t.createdAt ?? null,
+        progressPct: t.progressPct ?? null,
+        dex: 'Pump.fun',
       })),
     });
   } catch {
@@ -70,22 +79,39 @@ app.get('/api/trending', async (req, res) => {
   }
 });
 
+/**
+ * Terminal feed tabs (pump.fun only):
+ * - trending / movers → activity movers
+ * - top → highest market cap
+ * - surge → biggest % change
+ * - pulse / new → newest created pairs
+ */
 app.get('/api/terminal', async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 20, 30);
     const tab = String(req.query.tab || 'trending');
     const force = req.query.refresh === '1';
     const { enrichTerminalToken } = await import('../services/tokenMeta.js');
-    let items = await getTrendingTokens(limit, force);
-    if (tab === 'surge') {
-      items = [...items].sort(
-        (a, b) => (b.change24h ?? -999) - (a.change24h ?? -999)
-      );
+
+    let items;
+    if (tab === 'pulse' || tab === 'new' || tab === 'newpairs') {
+      items = await getNewPumpPairs(limit, force);
+    } else if (tab === 'trending' || tab === 'movers') {
+      items = await getPumpMovers(limit, force);
+    } else if (tab === 'surge') {
+      items = await getTrendingTokens(limit * 2, force);
+      items = [...items]
+        .filter((i) => i.source === 'pump')
+        .sort((a, b) => (b.change24h ?? -999) - (a.change24h ?? -999));
     } else if (tab === 'top') {
-      items = [...items].sort(
-        (a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0)
-      );
+      items = await getTrendingTokens(limit * 2, force);
+      items = [...items]
+        .filter((i) => i.source === 'pump')
+        .sort((a, b) => (b.marketCap ?? 0) - (a.marketCap ?? 0));
+    } else {
+      items = await getPumpMovers(limit, force);
     }
+
     const tokens = await Promise.all(
       items.slice(0, limit).map((t) =>
         enrichTerminalToken({
@@ -104,7 +130,13 @@ app.get('/api/terminal', async (req, res) => {
         })
       )
     );
-    res.json({ ok: true, tab, count: tokens.length, updatedAt: Date.now(), tokens });
+    res.json({
+      ok: true,
+      tab,
+      count: tokens.length,
+      updatedAt: Date.now(),
+      tokens,
+    });
   } catch (e) {
     console.error('[terminal]', e);
     res.status(502).json({ ok: false, error: 'terminal feed unavailable', tokens: [] });
@@ -158,7 +190,7 @@ app.get('/api/config', (_req, res) => {
   });
 });
 
-app.get(['/', '/trade/:mint', '/rewards'], (_req, res) => {
+app.get(['/', '/trade/:mint', '/rewards', '/hunter'], (_req, res) => {
   res.sendFile(path.join(publicDir, 'index.html'));
 });
 
