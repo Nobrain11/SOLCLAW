@@ -1,4 +1,4 @@
-/** SOL CLAW denser token terminal — live trades/holders/liq */
+/** SOL CLAW denser token terminal — chart embed + live txs + safety */
 (function () {
   function $(s, el) { return (el || document).querySelector(s); }
   function fmtUsd(n) {
@@ -18,7 +18,7 @@
     return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
   }
   function esc(s) {
-    return String(s || '').replace(/&/g,'&').replace(/</g,'<').replace(/>/g,'>').replace(/"/g,'"');
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
   function ago(ts) {
     if (!ts) return '';
@@ -49,14 +49,19 @@
 
     var d = Object.assign({}, t);
     try {
-      var res = await fetch('/api/token/' + encodeURIComponent(t.mint), { credentials: 'same-origin', signal: AbortSignal.timeout(12000) });
+      var res = await fetch('/api/token/' + encodeURIComponent(t.mint), {
+        credentials: 'same-origin',
+        signal: AbortSignal.timeout(15000),
+      });
       if (res.ok) {
         var j = await res.json();
-        if (j && j.ok) {
+        if (j && j.ok !== false) {
           d = Object.assign({}, t, j, {
             sparkline: j.sparkline && j.sparkline.length > 1 ? j.sparkline : (t.sparkline || []),
             trades: Array.isArray(j.trades) ? j.trades : [],
             holders: Array.isArray(j.holders) ? j.holders : [],
+            safety: j.safety || {},
+            chartEmbedUrl: j.chartEmbedUrl || null,
             volume: j.volume24h != null ? j.volume24h : t.volume,
             changePct: j.change24h != null ? j.change24h : t.changePct,
             liquidity: (j.liquidity != null && j.liquidity < 1e9) ? j.liquidity : ((t.liquidity != null && t.liquidity < 1e9) ? t.liquidity : null)
@@ -65,7 +70,7 @@
       }
     } catch (e) { console.warn('[terminal]', e); }
 
-    var chg = d.changePct != null ? Number(d.changePct) : 0;
+    var chg = d.changePct != null ? Number(d.changePct) : (d.change24h != null ? Number(d.change24h) : 0);
     var up = chg >= 0;
     var state = window.state || { paper: true, buyPreset: 0.1 };
     var mode = state.paper ? 'PAPER' : 'LIVE';
@@ -84,12 +89,34 @@
         return '<div class="tx-row"><span class="'+(isBuy?'up':'down')+'">'+amt+'</span><span class="muted">'+(tr.price!=null?fmtUsd(tr.price):'—')+'</span><span>'+esc(tr.wallet||'—')+'</span><span class="muted">'+ago(tr.ts)+'</span></div>';
       }).join('');
     } else {
-      tradeRows = '<div class="muted sm" style="padding:8px 0">No live trades in feed yet. Buys '+buys+' · Sells '+sells+'</div>';
+      tradeRows = '<div class="muted sm" style="padding:8px 0">No live trades yet. Buys '+buys+' · Sells '+sells+'</div>';
     }
 
     var holderRows = (d.holders||[]).slice(0,12).map(function(h){
       return '<div class="tx-row"><span>'+esc(h.address)+'</span><span>'+(h.pct!=null?h.pct.toFixed(1)+'%':'—')+'</span></div>';
     }).join('') || (d.holderCount != null ? '<div class="muted sm">Holders: <b>'+d.holderCount+'</b></div>' : '<div class="muted sm">Holders unavailable</div>');
+
+    var sf = d.safety || {};
+    function sVal(v) { return v == null ? '—' : (Number(v).toFixed(1) + '%'); }
+    var safetyGrid =
+      '<div class="safety-grid">' +
+      '<div class="safety-box"><b>'+sVal(sf.top10HolderPct)+'</b><span>Top 10 H.</span></div>' +
+      '<div class="safety-box"><b>'+sVal(sf.devHoldPct)+'</b><span>Dev H.</span></div>' +
+      '<div class="safety-box"><b>'+sVal(sf.snipersHoldPct)+'</b><span>Snipers</span></div>' +
+      '<div class="safety-box"><b>'+sVal(sf.insidersPct)+'</b><span>Insiders</span></div>' +
+      '<div class="safety-box"><b>'+sVal(sf.bundlersPct)+'</b><span>Bundlers</span></div>' +
+      '<div class="safety-box"><b>'+sVal(sf.lpBurnedPct)+'</b><span>LP Burned</span></div></div>';
+
+    var changeRow =
+      '<div class="change-row">' +
+      '<div class="change-btn"><span class="muted">5m</span><b class="'+(Number(d.change5m||0)>=0?'up':'down')+'">'+fmtPct(d.change5m)+'</b></div>' +
+      '<div class="change-btn"><span class="muted">1h</span><b class="'+(Number(d.change1h||0)>=0?'up':'down')+'">'+fmtPct(d.change1h)+'</b></div>' +
+      '<div class="change-btn"><span class="muted">6h</span><b class="'+(Number(d.change6h||0)>=0?'up':'down')+'">'+fmtPct(d.change6h)+'</b></div>' +
+      '<div class="change-btn"><span class="muted">24h</span><b class="'+(up?'up':'down')+'">'+fmtPct(chg)+'</b></div></div>';
+
+    var chartBlock = d.chartEmbedUrl
+      ? '<div class="term-chart embed"><iframe title="chart" src="'+esc(d.chartEmbedUrl)+'" loading="lazy" referrerpolicy="no-referrer"></iframe></div>'
+      : '<div class="term-chart">'+spark(d.sparkline, up)+'</div>';
 
     var buyBar = buys + sells > 0 ? Math.round((buys / (buys + sells)) * 100) : 50;
 
@@ -97,6 +124,7 @@
       '<div class="term denser" data-mint="'+mint+'">' +
       '<div class="term-head">'+logo+'<div class="term-head-meta"><div class="sym">$'+esc(d.symbol)+' <span class="muted sm">'+esc(d.name)+'</span></div>' +
       '<div class="price '+(up?'up':'down')+'">'+(d.priceUsd!=null?fmtUsd(d.priceUsd):'—')+' <span class="sm">'+fmtPct(chg)+'</span></div></div></div>' +
+      chartBlock +
       '<div class="stat-grid">' +
       '<div class="stat"><span class="muted">Mkt Cap</span><b>'+fmtUsd(d.marketCap)+'</b></div>' +
       '<div class="stat"><span class="muted">Liquidity</span><b>'+fmtUsd(d.liquidity)+'</b></div>' +
@@ -106,8 +134,9 @@
       '<div class="stat"><span class="muted">Sells</span><b class="down">'+sells+'</b></div>' +
       '<div class="stat"><span class="muted">Holders</span><b>'+(d.holderCount!=null?d.holderCount:'—')+'</b></div>' +
       '<div class="stat"><span class="muted">Mode</span><b>'+mode+(d.onCurve?' · curve':'')+'</b></div></div>' +
+      changeRow +
       '<div class="pressure"><div class="pressure-buy" style="width:'+buyBar+'%"></div></div>' +
-      '<div class="term-chart">'+spark(d.sparkline, up)+'</div>' +
+      safetyGrid +
       '<div class="term-trade"><div class="side-label">Buy</div><div class="amt-grid">' +
       '<button type="button" class="btn ghost" data-quick-buy="0.1" data-mint="'+mint+'">0.1</button>' +
       '<button type="button" class="btn ghost" data-quick-buy="0.25" data-mint="'+mint+'">0.25</button>' +
