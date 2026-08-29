@@ -1,5 +1,6 @@
 /**
- * Live pump.fun coin scraper + Solana DEX fallback.
+ * Live pump.fun coin scraper.
+ * Trending = movers on curve. New pairs = newest created.
  */
 
 export type TrendingToken = {
@@ -15,9 +16,10 @@ export type TrendingToken = {
   url: string;
   createdAt?: number | null;
   image?: string | null;
+  progressPct?: number | null;
 };
 
-const CACHE_MS = 20_000;
+const CACHE_MS = 15_000;
 let cache: { at: number; items: TrendingToken[] } | null = null;
 
 const HEADERS: Record<string, string> = {
@@ -47,14 +49,20 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
   const vol =
     num(c.volume_24h) ?? num(c.volume24h) ?? num(c.volume) ?? null;
   const img = String(c.image_uri ?? c.image ?? '');
-  // virtual_sol_reserves is SOL on the curve — NOT USD. Never pass it as liquidity USD.
+  const solRes = num(c.virtual_sol_reserves);
+  let progressPct: number | null = null;
+  if (c.complete === true) progressPct = 100;
+  else if (solRes != null && solRes > 0) {
+    progressPct = Math.min(100, Math.round((solRes / 85) * 100));
+  }
   const liq =
     num(c.virtual_usd_reserves) ??
     num(c.liquidity_usd) ??
     num(c.liquidityUsd) ??
     (typeof c.liquidity === 'number' && (c.liquidity as number) > 500
       ? num(c.liquidity)
-      : null);
+      : null) ??
+    (solRes != null ? solRes * 100 : null);
   return {
     mint,
     name: String(c.name ?? 'Unknown').slice(0, 28),
@@ -64,6 +72,7 @@ function mapPumpCoin(c: Record<string, unknown>): TrendingToken | null {
     volume24h: vol,
     change24h: num(c.price_change_24h) ?? num(c.priceChange24h),
     liquidity: liq,
+    progressPct,
     source: 'pump',
     url: `https://pump.fun/${mint}`,
     createdAt: num(c.created_timestamp) ?? num(c.createdAt),
@@ -93,6 +102,7 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     'last_trade_timestamp',
     'created_timestamp',
     'market_cap',
+    'virtual_sol_reserves',
   ];
 
   const seen = new Set<string>();
@@ -100,7 +110,7 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
 
   for (const base of bases) {
     for (const sort of sorts) {
-      if (out.length >= limit) break;
+      if (out.length >= limit * 2) break;
       const url = `${base}/coins?offset=0&limit=${Math.min(limit * 2, 50)}&sort=${sort}&order=DESC&includeNsfw=false`;
       const data = await fetchJson(url);
       if (!Array.isArray(data)) continue;
@@ -109,10 +119,9 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
         if (!item || seen.has(item.mint)) continue;
         seen.add(item.mint);
         out.push(item);
-        if (out.length >= limit) break;
       }
     }
-    if (out.length >= Math.min(8, limit)) break;
+    if (out.length >= Math.min(10, limit)) break;
   }
 
   for (const base of bases) {
@@ -126,81 +135,7 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     }
   }
 
-  return out.slice(0, limit);
-}
-
-async function fetchDexScreenerSolana(limit = 20): Promise<TrendingToken[]> {
-  const urls = [
-    'https://api.dexscreener.com/token-boosts/top/v1',
-    'https://api.dexscreener.com/token-profiles/latest/v1',
-  ];
-  const mints: string[] = [];
-  for (const url of urls) {
-    const data = await fetchJson(url);
-    if (!Array.isArray(data)) continue;
-    for (const raw of data) {
-      const x = raw as Record<string, unknown>;
-      const chain = String(x.chainId ?? '');
-      if (chain !== 'solana' && chain !== 'sol') continue;
-      const mint = String(x.tokenAddress ?? '');
-      if (mint.length >= 32) mints.push(mint);
-    }
-  }
-  if (mints.length === 0) {
-    const search = await fetchJson(
-      'https://api.dexscreener.com/latest/dex/search?q=SOL'
-    );
-    const pairs =
-      search && typeof search === 'object'
-        ? ((search as { pairs?: unknown[] }).pairs ?? [])
-        : [];
-    for (const p of pairs) {
-      const pair = p as Record<string, unknown>;
-      if (pair.chainId !== 'solana') continue;
-      const base = pair.baseToken as Record<string, unknown> | undefined;
-      const mint = String(base?.address ?? '');
-      if (mint.length >= 32) mints.push(mint);
-    }
-  }
-
-  const unique = [...new Set(mints)].slice(0, limit);
-  const items: TrendingToken[] = [];
-  for (const mint of unique) {
-    const data = await fetchJson(
-      `https://api.dexscreener.com/latest/dex/tokens/${mint}`
-    );
-    const pairs =
-      data && typeof data === 'object'
-        ? ((data as { pairs?: unknown[] }).pairs ?? [])
-        : [];
-    const sol = pairs.find((p) => {
-      const x = p as Record<string, unknown>;
-      return x.chainId === 'solana';
-    }) as Record<string, unknown> | undefined;
-    if (!sol) continue;
-    const base = sol.baseToken as Record<string, unknown> | undefined;
-    items.push({
-      mint,
-      name: String(base?.name ?? 'Token').slice(0, 28),
-      symbol: String(base?.symbol ?? '???').slice(0, 12),
-      priceUsd: num(sol.priceUsd),
-      marketCap: num(sol.marketCap) ?? num(sol.fdv),
-      volume24h: num((sol.volume as Record<string, unknown> | undefined)?.h24),
-      change24h: num(
-        (sol.priceChange as Record<string, unknown> | undefined)?.h24
-      ),
-      liquidity: num((sol.liquidity as Record<string, unknown> | undefined)?.usd),
-      source: 'dex',
-      url: String(sol.url ?? `https://dexscreener.com/solana/${mint}`),
-      image: (() => {
-        const info = sol.info as Record<string, unknown> | undefined;
-        const u = String(info?.imageUrl ?? '');
-        return u.startsWith('http') ? u : null;
-      })(),
-    });
-    if (items.length >= limit) break;
-  }
-  return items;
+  return out;
 }
 
 export async function getTrendingTokens(
@@ -211,21 +146,17 @@ export async function getTrendingTokens(
     return cache.items.slice(0, limit);
   }
 
-  let items = await fetchPumpFun(limit);
-  if (items.length < Math.min(6, limit)) {
-    const dex = await fetchDexScreenerSolana(limit);
-    const seen = new Set(items.map((i) => i.mint));
-    for (const d of dex) {
-      if (seen.has(d.mint)) continue;
-      items.push(d);
-      seen.add(d.mint);
-    }
-  }
+  // Pump.fun only for terminal feeds
+  let items = await fetchPumpFun(Math.max(limit, 24));
+  items = items.filter((i) => i.source === 'pump');
 
   items.sort((a, b) => {
-    const av = (a.volume24h ?? 0) + (a.marketCap ?? 0) * 0.01;
-    const bv = (b.volume24h ?? 0) + (b.marketCap ?? 0) * 0.01;
-    return bv - av;
+    const score = (x: TrendingToken) =>
+      (x.volume24h ?? 0) * 2 +
+      (x.marketCap ?? 0) * 0.05 +
+      (x.progressPct ?? 0) * 15 +
+      Math.abs(x.change24h ?? 0) * 500;
+    return score(b) - score(a);
   });
 
   items = items.slice(0, limit);
@@ -233,11 +164,54 @@ export async function getTrendingTokens(
   return items;
 }
 
+/** Newest bonding-curve coins (Pulse / New pairs). */
+export async function getNewPumpPairs(
+  limit = 20,
+  force = false
+): Promise<TrendingToken[]> {
+  const items = await getTrendingTokens(Math.max(limit * 2, 40), force);
+  const pump = items.filter((i) => i.source === 'pump');
+  pump.sort((a, b) => {
+    const ta =
+      a.createdAt != null
+        ? a.createdAt > 1e12
+          ? a.createdAt
+          : a.createdAt * 1000
+        : 0;
+    const tb =
+      b.createdAt != null
+        ? b.createdAt > 1e12
+          ? b.createdAt
+          : b.createdAt * 1000
+        : 0;
+    return tb - ta;
+  });
+  return pump.slice(0, limit);
+}
+
+/** Pump.fun movers — volume / activity on curve. */
+export async function getPumpMovers(
+  limit = 20,
+  force = false
+): Promise<TrendingToken[]> {
+  const items = await getTrendingTokens(Math.max(limit * 2, 40), force);
+  const pump = items.filter((i) => i.source === 'pump');
+  pump.sort((a, b) => {
+    const score = (x: TrendingToken) =>
+      (x.volume24h ?? 0) * 2 +
+      (x.marketCap ?? 0) * 0.05 +
+      Math.abs(x.change24h ?? 0) * 1000 +
+      (x.progressPct ?? 0) * 10;
+    return score(b) - score(a);
+  });
+  return pump.slice(0, limit);
+}
+
 export function formatTrendingMessage(items: TrendingToken[]): string {
   if (!items.length) {
     return (
-      `🔥 <b>PUMP.FUN LIVE</b>\n\n` +
-      `No coins returned right now. Tap refresh in a few seconds.`
+      `🔥 <b>PUMP.FUN MOVERS</b>\n\n` +
+      `No coins right now. Tap refresh.`
     );
   }
   const lines = items.slice(0, 12).map((t, i) => {
@@ -249,16 +223,15 @@ export function formatTrendingMessage(items: TrendingToken[]): string {
             ? `$${(t.marketCap / 1e3).toFixed(1)}K`
             : `$${t.marketCap.toFixed(0)}`
         : '—';
-    const tag = t.source === 'pump' ? 'pump' : 'dex';
     return (
       `<b>${i + 1}. $${t.symbol}</b> · ${t.name}\n` +
-      `MC ${mc} · <code>${t.mint.slice(0, 6)}…${t.mint.slice(-4)}</code> · ${tag}`
+      `MC ${mc} · <code>${t.mint.slice(0, 6)}…${t.mint.slice(-4)}</code> · pump`
     );
   });
   return (
-    `🔥 <b>PUMP.FUN · LIVE</b>\n` +
-    `<i>Scraped just now · Solana only</i>\n\n` +
+    `🔥 <b>PUMP.FUN MOVERS</b>\n` +
+    `<i>Live · Solana only</i>\n\n` +
     lines.join('\n\n') +
-    `\n\nPaste a mint to open the trade card.`
+    `\n\nTap Buy under a coin or paste a mint.`
   );
 }
