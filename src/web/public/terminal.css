@@ -26,15 +26,8 @@
   border-radius: 12px;
   padding: 12px;
 }
-.term-token .sym {
-  font-size: 18px;
-  font-weight: 700;
-}
-.term-token .price {
-  font-size: 22px;
-  font-weight: 700;
-  margin: 6px 0 4px;
-}
+.term-token .sym { font-size: 18px; font-weight: 700; }
+.term-token .price { font-size: 22px; font-weight: 700; margin: 6px 0 4px; }
 .term-token .metrics {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -89,10 +82,7 @@
   grid-template-columns: 1fr 1fr;
   gap: 6px;
 }
-.term-trade .amt-grid .btn {
-  padding: 10px 8px;
-  font-size: 13px;
-}
+.term-trade .amt-grid .btn { padding: 10px 8px; font-size: 13px; }
 .term-trade .btn.buy-full {
   background: #16a34a;
   color: #fff;
@@ -114,10 +104,7 @@
   grid-template-columns: repeat(4, 1fr);
   gap: 4px;
 }
-.term-trade .sell-pct .btn {
-  padding: 8px 4px;
-  font-size: 12px;
-}
+.term-trade .sell-pct .btn { padding: 8px 4px; font-size: 12px; }
 
 .term-tabs {
   display: flex;
@@ -175,3 +162,51 @@
 }
 .term-pos .pos-actions .btn { padding: 10px; font-size: 12px; }
 .term-status { font-size: 12px; min-height: 18px; }
+
+/* denser token terminal */
+.term.denser { gap: 10px; }
+.term-head { display: flex; gap: 10px; align-items: center; }
+.term-head .token-logo { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; }
+.term-head-meta .sym { font-size: 16px; font-weight: 700; }
+.term-head-meta .price { font-size: 20px; font-weight: 700; margin-top: 2px; }
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+.stat {
+  background: var(--bg, #0d1117);
+  border: 1px solid var(--border, #1e2630);
+  border-radius: 10px;
+  padding: 8px;
+  font-size: 11px;
+}
+.stat b { display: block; margin-top: 2px; font-size: 13px; color: var(--text, #e8eef5); }
+.pressure {
+  height: 4px;
+  border-radius: 4px;
+  background: #ef444455;
+  overflow: hidden;
+}
+.pressure-buy { height: 100%; background: #22c55e; }
+.term.denser .term-chart { min-height: 120px; padding: 8px; }
+.tx-head, .tx-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr 1fr 0.6fr;
+  gap: 6px;
+  font-size: 12px;
+  padding: 6px 2px;
+  align-items: center;
+}
+.tx-head {
+  color: var(--muted, #8b9bb0);
+  border-bottom: 1px solid var(--border, #1e2630);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.tx-row { border-bottom: 1px solid var(--border, #1e2630); }
+.tx-feed { max-height: 240px; overflow: auto; }
+@media (max-width: 600px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
