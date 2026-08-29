@@ -1,15 +1,28 @@
 /**
  * Paper trading — real market prices, no on-chain txs.
  * Clearly labeled PAPER. Never mixed with LIVE positions.
- * pump.fun mints supported via market + scanner.
  */
 
 import { scanToken } from './scanner.js';
 import { getMarketData } from './market.js';
-import { openPosition, closePosition, getOpenPositions, trackPosition } from './positions.js';
+import { getSolPrice } from './solPrice.js';
+import {
+  openPosition,
+  closePosition,
+  getOpenPositions,
+  trackPosition,
+} from './positions.js';
 import { recordTrade } from './history.js';
 import { checkTradeRisk } from './risk.js';
 import type { Position, TradeResult } from '../types/trading.js';
+
+async function resolvePriceUsd(mint: string): Promise<number | null> {
+  const market = await getMarketData(mint).catch(() => null);
+  if (market?.priceUsd != null && market.priceUsd > 0) return market.priceUsd;
+  const analysis = await scanToken(mint).catch(() => null);
+  if (analysis?.price != null && analysis.price > 0) return analysis.price;
+  return null;
+}
 
 export async function paperBuy(input: {
   userId: number;
@@ -26,11 +39,13 @@ export async function paperBuy(input: {
     token: analysis,
   });
   if (!risk.allowed) {
-    return { result: { state: 'FAILED', error: risk.reason, mode: 'PAPER' } };
+    return {
+      result: { state: 'FAILED', error: risk.reason, mode: 'PAPER' },
+    };
   }
 
-  const market = await getMarketData(input.mint);
-  if (market.priceUsd == null) {
+  const price = (await resolvePriceUsd(input.mint)) ?? analysis.price;
+  if (price == null || price <= 0) {
     return {
       result: {
         state: 'FAILED',
@@ -40,8 +55,10 @@ export async function paperBuy(input: {
     };
   }
 
-  const price = market.priceUsd;
-  const quantity = input.amountSol / price;
+  const sol = await getSolPrice();
+  const solUsd = sol.priceUsd && sol.priceUsd > 0 ? sol.priceUsd : 150;
+  // tokens received ≈ (SOL spent * SOL/USD) / token USD price
+  const quantity = (input.amountSol * solUsd) / price;
 
   const position = openPosition({
     userId: input.userId,
@@ -54,7 +71,6 @@ export async function paperBuy(input: {
     stopLossPct: input.stopLossPct ?? -20,
     mode: 'PAPER',
   });
-
   trackPosition(position);
 
   recordTrade({
@@ -89,34 +105,41 @@ export async function paperSell(input: {
   const pos = open.find((p) => p.id === input.positionId);
   if (!pos) {
     return {
-      result: { state: 'FAILED', error: 'Paper position not found', mode: 'PAPER' },
-    };
-  }
-
-  const market = await getMarketData(pos.mint);
-  if (market.priceUsd == null) {
-    return {
       result: {
         state: 'FAILED',
-        error: 'Market data unavailable. Trade blocked.',
+        error: 'Paper position not found',
         mode: 'PAPER',
       },
     };
   }
 
-  const exitPrice = market.priceUsd;
   const pct = Math.min(100, Math.max(1, input.percentage)) / 100;
   const sellQty = pos.quantity * pct;
-  const valueSol = sellQty * exitPrice;
+
+  const price =
+    (await resolvePriceUsd(pos.mint)) ?? pos.currentPrice ?? pos.entryPrice;
+  if (price == null || price <= 0) {
+    return {
+      result: {
+        state: 'FAILED',
+        error: 'Market data unavailable for sell',
+        mode: 'PAPER',
+      },
+    };
+  }
+
+  const sol = await getSolPrice();
+  const solUsd = sol.priceUsd && sol.priceUsd > 0 ? sol.priceUsd : 150;
+  const valueSol = (sellQty * price) / solUsd;
   const costBasis = pos.entrySol * pct;
   const pnlSol = valueSol - costBasis;
   const pnlPct =
     pos.entryPrice > 0
-      ? ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100
+      ? ((price - pos.entryPrice) / pos.entryPrice) * 100
       : 0;
 
   if (pct >= 0.999) {
-    closePosition(pos.id, exitPrice);
+    closePosition(pos.id, price);
   } else {
     pos.quantity -= sellQty;
     pos.entrySol -= costBasis;
@@ -128,7 +151,7 @@ export async function paperSell(input: {
     symbol: pos.symbol,
     side: 'SELL',
     amount: sellQty,
-    price: exitPrice,
+    price,
     valueSol,
     pnlSol,
     pnlPct,
@@ -140,7 +163,7 @@ export async function paperSell(input: {
       state: 'CONFIRMED',
       inAmount: sellQty,
       outAmount: valueSol,
-      price: exitPrice,
+      price,
       mode: 'PAPER',
     },
     position: pos,
