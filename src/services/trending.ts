@@ -1,6 +1,6 @@
 /**
  * Live pump.fun coin scraper.
- * Movers = activity on curve. New pairs = <60 min, MC <$500k.
+ * Movers = activity on curve. New pairs = newest created (strict + soft fallback).
  */
 
 export type TrendingToken = {
@@ -104,10 +104,8 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     'market_cap',
     'virtual_sol_reserves',
   ];
-
   const seen = new Set<string>();
   const out: TrendingToken[] = [];
-
   for (const base of bases) {
     for (const sort of sorts) {
       if (out.length >= limit * 2) break;
@@ -123,7 +121,6 @@ async function fetchPumpFun(limit = 24): Promise<TrendingToken[]> {
     }
     if (out.length >= Math.min(10, limit)) break;
   }
-
   return out;
 }
 
@@ -134,10 +131,8 @@ export async function getTrendingTokens(
   if (!force && cache && Date.now() - cache.at < CACHE_MS) {
     return cache.items.slice(0, limit);
   }
-
   let items = await fetchPumpFun(Math.max(limit, 24));
   items = items.filter((i) => i.source === 'pump');
-
   items.sort((a, b) => {
     const score = (x: TrendingToken) =>
       (x.volume24h ?? 0) * 2 +
@@ -146,13 +141,12 @@ export async function getTrendingTokens(
       Math.abs(x.change24h ?? 0) * 500;
     return score(b) - score(a);
   });
-
   items = items.slice(0, limit);
   cache = { at: Date.now(), items };
   return items;
 }
 
-/** Newest bonding-curve coins — real New pairs only. */
+/** Newest bonding-curve coins — New pairs. */
 export async function getNewPumpPairs(
   limit = 20,
   _force = false
@@ -179,10 +173,10 @@ export async function getNewPumpPairs(
   }
 
   const now = Date.now();
-  const MAX_AGE_MS = 60 * 60 * 1000; // 60 minutes
-  const MAX_MC = 500_000; // not $860M
+  const MAX_AGE_MS = 60 * 60 * 1000;
+  const MAX_MC = 500_000;
 
-  const filtered = raw.filter((t) => {
+  let list = raw.filter((t) => {
     if (t.source !== 'pump') return false;
     if (t.createdAt == null) return false;
     const ms = t.createdAt > 1e12 ? t.createdAt : t.createdAt * 1000;
@@ -193,15 +187,43 @@ export async function getNewPumpPairs(
     return true;
   });
 
-  filtered.sort((a, b) => {
-    const ta = a.createdAt! > 1e12 ? a.createdAt! : a.createdAt! * 1000;
-    const tb = b.createdAt! > 1e12 ? b.createdAt! : b.createdAt! * 1000;
+  // Soft fallback so Pulse is never empty
+  if (list.length < 5) {
+    list = raw
+      .filter((t) => t.source === 'pump')
+      .filter((t) => t.marketCap == null || t.marketCap < 2_000_000)
+      .sort((a, b) => {
+        const ta = a.createdAt
+          ? a.createdAt > 1e12
+            ? a.createdAt
+            : a.createdAt * 1000
+          : 0;
+        const tb = b.createdAt
+          ? b.createdAt > 1e12
+            ? b.createdAt
+            : b.createdAt * 1000
+          : 0;
+        return tb - ta;
+      });
+  }
+
+  list.sort((a, b) => {
+    const ta = a.createdAt
+      ? a.createdAt > 1e12
+        ? a.createdAt
+        : a.createdAt * 1000
+      : 0;
+    const tb = b.createdAt
+      ? b.createdAt > 1e12
+        ? b.createdAt
+        : b.createdAt * 1000
+      : 0;
     return tb - ta;
   });
 
   const bySym = new Set<string>();
   const out: TrendingToken[] = [];
-  for (const t of filtered) {
+  for (const t of list) {
     const key = t.symbol.toUpperCase();
     if (bySym.has(key)) continue;
     bySym.add(key);
@@ -211,17 +233,16 @@ export async function getNewPumpPairs(
   return out;
 }
 
-/** Pump.fun movers — volume / activity (not mega-cap junk). */
+/** Pump.fun movers — volume / activity. */
 export async function getPumpMovers(
   limit = 20,
   force = false
 ): Promise<TrendingToken[]> {
   const items = await getTrendingTokens(Math.max(limit * 3, 40), force);
   const pump = items.filter((i) => i.source === 'pump');
-  const clean = pump.filter((t) => {
-    if (t.marketCap != null && t.marketCap > 50_000_000) return false;
-    return true;
-  });
+  const clean = pump.filter(
+    (t) => t.marketCap == null || t.marketCap <= 50_000_000
+  );
   clean.sort((a, b) => {
     const score = (x: TrendingToken) =>
       (x.volume24h ?? 0) * 2 +
