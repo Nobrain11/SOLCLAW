@@ -55,7 +55,7 @@ export async function resolveTokenImage(
   mint: string,
   hint?: string | null
 ): Promise<string | null> {
-  if (hint && /^https?:\/\//i.test(hint)) return hint;
+  if (hint && /^https?:\/\/i.test(hint)) return hint;
   const hit = imgCache.get(mint);
   if (hit && Date.now() - hit.at < IMG_TTL) return hit.url;
 
@@ -83,15 +83,6 @@ export async function resolveTokenImage(
     }
   }
 
-  const jup = await fetchJson(`https://tokens.jup.ag/token/${mint}`);
-  if (jup && typeof jup === 'object') {
-    const img = String((jup as Record<string, unknown>).logoURI || '');
-    if (img.startsWith('http')) {
-      imgCache.set(mint, { at: Date.now(), url: img });
-      return img;
-    }
-  }
-
   imgCache.set(mint, { at: Date.now(), url: null });
   return null;
 }
@@ -104,38 +95,7 @@ export async function resolveSparkline(
   const hit = sparkCache.get(mint);
   if (hit && Date.now() - hit.at < SPARK_TTL) return hit.pts;
 
-  try {
-    const dex = await fetchJson(`https://api.dexscreener.com/latest/dex/tokens/${mint}`);
-    const pairs =
-      dex && typeof dex === 'object'
-        ? ((dex as { pairs?: Record<string, unknown>[] }).pairs ?? [])
-        : [];
-    const sol = pairs.find((p) => p.chainId === 'solana') as
-      | Record<string, unknown>
-      | undefined;
-    if (sol) {
-      const pc = sol.priceChange as Record<string, number> | undefined;
-      const base = price && price > 0 ? price : 1;
-      const m5 = pc?.m5 ?? 0;
-      const h1 = pc?.h1 ?? changePct ?? 0;
-      const h6 = pc?.h6 ?? h1;
-      const h24 = pc?.h24 ?? changePct ?? 0;
-      const pts: number[] = [];
-      const steps = 16;
-      for (let i = 0; i < steps; i++) {
-        const t = i / (steps - 1);
-        const ch = t < 0.25 ? h24 : t < 0.5 ? h6 : t < 0.75 ? h1 : m5;
-        const factor = 1 - (ch / 100) * (1 - t);
-        pts.push(base * Math.max(0.01, factor));
-      }
-      sparkCache.set(mint, { at: Date.now(), pts });
-      return pts;
-    }
-  } catch {
-    /* */
-  }
-
-  const ch = changePct ?? 0;
+  const ch = changePct != null && Math.abs(changePct) < 1e5 ? changePct : 0;
   const base = price && price > 0 ? price : 1;
   const pts: number[] = [];
   for (let i = 0; i < 16; i++) {
@@ -152,9 +112,8 @@ function ageFromTs(ts: number | null | undefined): number | null {
   const ms = ts > 1e12 ? ts : ts > 1e9 ? ts * 1000 : null;
   if (ms == null) return null;
   const min = Math.floor((Date.now() - ms) / 60_000);
-  if (min < 0) return null;
-  // hide ages older than 30d in meme terminal
-  if (min > 60 * 24 * 30) return null;
+  if (min < 0) return 0;
+  if (min > 60 * 24 * 7) return null;
   return min;
 }
 
@@ -201,23 +160,36 @@ export async function enrichTerminalToken(raw: {
       buys = txns?.h1?.buys ?? txns?.h24?.buys ?? null;
       sells = txns?.h1?.sells ?? txns?.h24?.sells ?? null;
       const L = sol.liquidity as { usd?: number } | undefined;
-      if (L?.usd != null) liq = L.usd;
+      if (L?.usd != null && L.usd < 50_000_000) liq = L.usd;
       const V = sol.volume as { h24?: number } | undefined;
       if (V?.h24 != null) vol = V.h24;
-      if (sol.priceUsd != null) price = Number(sol.priceUsd);
+      if ((price == null || price === 0) && sol.priceUsd != null) {
+        price = Number(sol.priceUsd);
+      }
       const pc = sol.priceChange as { h24?: number } | undefined;
-      if (pc?.h24 != null) change = pc.h24;
-      if (typeof sol.marketCap === 'number') mcap = sol.marketCap;
-      else if (typeof sol.fdv === 'number') mcap = sol.fdv;
-      if (typeof sol.pairCreatedAt === 'number') {
+      if (change == null && pc?.h24 != null) change = pc.h24;
+
+      // Never replace a sane pump MC with a inflated Dex figure
+      if (raw.source === 'pump' && mcap != null && mcap < 2_000_000) {
+        /* keep pump MC */
+      } else if (typeof sol.marketCap === 'number' && sol.marketCap < 50_000_000) {
+        mcap = sol.marketCap;
+      } else if (typeof sol.fdv === 'number' && sol.fdv < 50_000_000) {
+        mcap = sol.fdv;
+      }
+
+      // Only fill age if missing — never overwrite pump createdAt age
+      if (ageMin == null && typeof sol.pairCreatedAt === 'number') {
         const pairAge = ageFromTs(sol.pairCreatedAt);
-        if (pairAge != null && (ageMin == null || pairAge < ageMin)) {
-          ageMin = pairAge;
-        }
+        if (pairAge != null && pairAge < 60 * 24) ageMin = pairAge;
       }
     }
   } catch {
     /* */
+  }
+
+  if (change != null && Math.abs(change) > 1e6) {
+    change = Math.sign(change) * 1e6;
   }
 
   let score = 55;
